@@ -24,7 +24,7 @@ import net.sf.kdgcommons.test.SelfMock;
 
 /**
  *  Common superclass for mock objects. This class extends <code>SelfMock</code>,
- *  with added assertions.
+ *  adding common assertions (which are only available in JUnit 4.x and above).
  */
 public abstract class AbstractMock<T>
 extends SelfMock<T>

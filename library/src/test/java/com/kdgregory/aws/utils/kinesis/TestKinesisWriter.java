@@ -14,11 +14,9 @@
 
 package com.kdgregory.aws.utils.kinesis;
 
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.junit.Before;
@@ -28,11 +26,12 @@ import static org.junit.Assert.*;
 import org.apache.log4j.*;
 import org.apache.log4j.spi.*;
 
+import net.sf.kdgcommons.collections.CollectionUtil;
 import net.sf.kdgcommons.lang.StringUtil;
-import net.sf.kdgcommons.test.SelfMock;
 
-import com.amazonaws.services.kinesis.AmazonKinesis;
 import com.amazonaws.services.kinesis.model.*;
+
+import com.kdgregory.aws.utils.testhelpers.mocks.MockAmazonKinesis;
 
 
 public class TestKinesisWriter
@@ -98,68 +97,25 @@ public class TestKinesisWriter
     }
 
 
-    /**
-     *  A mock client that supports only <code>PutRecords</code>. By default,
-     *  the request is recorded and response is successful. Override
-     */
-    public static class KinesisMock extends SelfMock<AmazonKinesis>
-    {
-        private String expectedStreamName;
-
-        public List<PutRecordsRequest> recordsWritten = new ArrayList<PutRecordsRequest>();
-
-        public KinesisMock(String expectedStreamName)
-        {
-            super(AmazonKinesis.class);
-            this.expectedStreamName = expectedStreamName;
-        }
-
-        public PutRecordsResult putRecords(PutRecordsRequest request)
-        {
-            assertEquals("putRecords: stream name", expectedStreamName, request.getStreamName());
-
-            List<PutRecordsResultEntry> results = new ArrayList<PutRecordsResultEntry>();
-            int recordIndex = 0;
-            int failedRecordCount = 0;
-            for (PutRecordsRequestEntry requestEntry : request.getRecords())
-            {
-                PutRecordsResultEntry resultEntry = processRecord(requestEntry, recordIndex++);
-                results.add(resultEntry);
-                if (! StringUtil.isEmpty(resultEntry.getErrorCode()))
-                    failedRecordCount++;
-            }
-
-            return new PutRecordsResult()
-                   .withRecords(results)
-                   .withFailedRecordCount(failedRecordCount);
-        }
-
-        protected PutRecordsResultEntry processRecord(PutRecordsRequestEntry record, int index)
-        {
-            return new PutRecordsResultEntry()
-                   .withShardId("shard-0000")
-                   .withSequenceNumber("00000000");
-        }
-    }
-
 
     /**
      *  A variant of the mock that fails 1 out of N records.
      */
-    public static class PartialThrottlingMock extends KinesisMock
+    public static class ThrottlingMock
+    extends MockAmazonKinesis
     {
         private int failureMod;
 
-        public PartialThrottlingMock(String streamName, int failureMod)
+        public ThrottlingMock(String streamName, int failureMod)
         {
             super(streamName);
             this.failureMod = failureMod;
         }
 
         @Override
-        protected PutRecordsResultEntry processRecord(PutRecordsRequestEntry record, int index)
+        protected PutRecordsResultEntry processRecord(MockStream streamInfo, PutRecordsRequestEntry record, int index)
         {
-            // note: mod must not be 0 or we'll never end
+            // note: can't compare mod to 0 or we'll never end
             if (index % failureMod == 1)
             {
                 return new PutRecordsResultEntry()
@@ -168,11 +124,10 @@ public class TestKinesisWriter
             }
             else
             {
-                return super.processRecord(record, index);
+                return super.processRecord(streamInfo, record, index);
             }
         }
     }
-
 
 //----------------------------------------------------------------------------
 //  Testcases
@@ -183,24 +138,36 @@ public class TestKinesisWriter
     {
         myLogger.info("testHappyPath");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME);
+        final String record0pk   = "f\u00F6";
+        final String record0msg  = "b\u00E4r";
+        final byte[] record0data = record0msg.getBytes("UTF-8");
+        final int    record0size = record0pk.getBytes("UTF-8").length + record0data.length;
+
+        final String record1pk   = "argle";
+        final String record1msg  = "bargle";
+        final byte[] record1data = record1msg.getBytes("UTF-8");
+        final int    record1size = record1pk.getBytes("UTF-8").length + record1data.length;
+
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
-        writer.addRecord("f\u00F6", "b\u00E4r");
+        writer.addRecord(record0pk, record0msg);
 
-        assertEquals("after adding first record, number of unsent records", 1, writer.getUnsentRecords().size());
-        assertEquals("after adding first record, size of unsent records",   7, writer.getUnsentRecordSize());
+        assertEquals("after adding first record, number of unsent records",     1,                          writer.getUnsentRecords().size());
+        assertEquals("after adding first record, size of unsent records",       record0size,                writer.getUnsentRecordSize());
 
-        // this will be our spot-check to validate record contents
-        assertEquals("record 0 partition key",      "f\u00F6",                      writer.getUnsentRecords().get(0).getPartitionKey());
-        assertArrayEquals("record 0 data",          "b\u00E4r".getBytes("UTF-8"),   writer.getUnsentRecords().get(0).getData().array());
+        writer.addRecord(record1pk, record1msg);
 
-        writer.addRecord("argle", "bargle");
-
-        assertEquals("after adding second record, number of unsent records", 2, writer.getUnsentRecords().size());
-        assertEquals("after adding first record, size of unsent records",    18, writer.getUnsentRecordSize());
+        assertEquals("after adding second record, number of unsent records",    2,                          writer.getUnsentRecords().size());
+        assertEquals("after adding first record, size of unsent records",       record0size + record1size,  writer.getUnsentRecordSize());
 
         List<PutRecordsRequestEntry> recordsToSend = writer.getUnsentRecords();
+
+        assertEquals("unsent record 0 partition key",       record0pk,          recordsToSend.get(0).getPartitionKey());
+        assertArrayEquals("unsent record 0 data",           record0data,        recordsToSend.get(0).getData().array());
+
+        assertEquals("runsent ecord 1 partition key",       record1pk,          recordsToSend.get(1).getPartitionKey());
+        assertArrayEquals("unsent record 1 data",           record1data,        recordsToSend.get(1).getData().array());
 
         writer.send();
 
@@ -210,6 +177,10 @@ public class TestKinesisWriter
 
         assertSame("ordering of results: record 0", recordsToSend.get(0), writer.getSendResults().get(0).getRequestEntry());
         assertSame("ordering of results: record 1", recordsToSend.get(1), writer.getSendResults().get(1).getRequestEntry());
+
+        assertNotNull("putRecords() called",        mock.getMostRecentPutRecordsRequest());
+        assertEquals("putRecords partition keys",   CollectionUtil.asSet(record0pk, record1pk), mock.getMostRecentPutRecordsPartitionKeys());
+        assertEquals("putRecords data",             Arrays.asList(record0msg, record1msg),      mock.getMostRecentPutRecordsContent());
     }
 
 
@@ -218,7 +189,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testPartialThrottling");
 
-        KinesisMock mock = new PartialThrottlingMock(STREAM_NAME, 2);
+        MockAmazonKinesis mock = new ThrottlingMock(STREAM_NAME, 2);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         writer.addRecord("foo", "bar");
@@ -253,16 +224,16 @@ public class TestKinesisWriter
 
 
     @Test
-    public void testCompleteThrottling() throws Exception
+    public void testRequestThrottling() throws Exception
     {
         myLogger.info("testCompleteThrottling");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME)
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME)
         {
             @Override
-            protected PutRecordsResultEntry processRecord(PutRecordsRequestEntry record, int index)
+            public PutRecordsResult putRecords(PutRecordsRequest request)
             {
-                throw new ProvisionedThroughputExceededException("x");
+                throw new ProvisionedThroughputExceededException("will never succeed");
             }
         };
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
@@ -288,14 +259,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testMissingStream");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME)
-        {
-            @Override
-            protected PutRecordsResultEntry processRecord(PutRecordsRequestEntry record, int index)
-            {
-                throw new ResourceNotFoundException("x");
-            }
-        };
+        MockAmazonKinesis mock = new MockAmazonKinesis();
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         writer.addRecord("foo", "bar");
@@ -323,13 +287,12 @@ public class TestKinesisWriter
     {
         myLogger.info("testEmptySend");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME)
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME)
         {
             @Override
             public PutRecordsResult putRecords(PutRecordsRequest request)
             {
-                // throwing anything will cause test to fail
-                throw new ResourceNotFoundException("x");
+                throw new IllegalStateException("putRecords should not have been called");
             }
         };
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
@@ -343,7 +306,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testClear");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME);
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         writer.addRecord("foo", "bar");
@@ -364,7 +327,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testOversizeMessage");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME);
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         String partitionKey = "foo";
@@ -387,7 +350,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testMaxRecordsInBatch");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME);
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         for (int ii = 0 ; ii < 500 ; ii++)
@@ -404,7 +367,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testMaxBytesInBatch");
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME);
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         String partitionKey = "foo";
@@ -426,17 +389,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testRandomPartitionKey");
 
-        final Set<String> actualPartitionKeys = new HashSet<String>();
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME)
-        {
-            @Override
-            protected PutRecordsResultEntry processRecord(PutRecordsRequestEntry record, int index)
-            {
-                actualPartitionKeys.add(record.getPartitionKey());
-                return super.processRecord(record, index);
-            }
-        };
+        MockAmazonKinesis mock = new MockAmazonKinesis(STREAM_NAME);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         for (int ii = 0 ; ii < 5 ; ii++)
@@ -450,7 +403,7 @@ public class TestKinesisWriter
 
         // since we're using the standard Java random number generator we know that it
         // has a long cycle without repeats so this is a valid assertion
-        assertEquals("number of distinct partition keys", 10, actualPartitionKeys.size());
+        assertEquals("number of distinct partition keys", 10, mock.getMostRecentPutRecordsPartitionKeys().size());
     }
 
 
@@ -459,7 +412,7 @@ public class TestKinesisWriter
     {
         myLogger.info("testSendAll");
 
-        KinesisMock mock = new PartialThrottlingMock(STREAM_NAME, 3);
+        MockAmazonKinesis mock = new ThrottlingMock(STREAM_NAME, 3);
         KinesisWriter writer = new KinesisWriter(mock.getInstance(), STREAM_NAME);
 
         for (int ii = 0 ; ii < 10 ; ii++)
