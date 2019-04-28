@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.kdgregory.aws.utils.logs;
+package com.kdgregory.aws.utils.cloudwatch;
 
 import java.util.Arrays;
 import java.util.List;
@@ -30,7 +30,7 @@ import static net.sf.kdgcommons.test.NumericAsserts.*;
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.*;
 
-import com.kdgregory.aws.utils.logs.CloudWatchLogsUtil;
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil;
 import com.kdgregory.aws.utils.testhelpers.Log4JCapturingAppender;
 import com.kdgregory.aws.utils.testhelpers.mocks.MockAWSLogs;
 

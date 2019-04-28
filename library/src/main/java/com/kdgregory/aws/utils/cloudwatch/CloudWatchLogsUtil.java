@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.kdgregory.aws.utils.logs;
+package com.kdgregory.aws.utils.cloudwatch;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -60,7 +60,7 @@
             <artifactId>aws-java-sdk-cloudwatch</artifactId>
             <version>${aws-sdk.version}</version>
             <scope>provided</scope>
-        </dependency>        
+        </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-kinesis</artifactId>
@@ -72,7 +72,13 @@
             <artifactId>aws-java-sdk-logs</artifactId>
             <version>${aws-sdk.version}</version>
             <scope>provided</scope>
-        </dependency>        
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-s3</artifactId>
+            <version>${aws-sdk.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
         <dependency>
             <!-- provided as a transitive dependency of the SDK or overridden by user -->

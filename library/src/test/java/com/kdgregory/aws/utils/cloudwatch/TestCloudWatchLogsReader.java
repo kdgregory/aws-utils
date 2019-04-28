@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.kdgregory.aws.utils.logs;
+package com.kdgregory.aws.utils.cloudwatch;
 
 import java.util.List;
 
@@ -25,6 +25,8 @@ import org.apache.log4j.Level;
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.*;
 
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsReader;
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil;
 import com.kdgregory.aws.utils.testhelpers.Log4JCapturingAppender;
 import com.kdgregory.aws.utils.testhelpers.mocks.MockAWSLogs;
 
