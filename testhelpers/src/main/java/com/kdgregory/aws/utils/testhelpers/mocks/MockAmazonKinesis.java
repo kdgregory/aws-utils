@@ -15,6 +15,7 @@
 package com.kdgregory.aws.utils.testhelpers.mocks;
 
 import java.lang.reflect.Constructor;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -40,11 +41,16 @@ import com.amazonaws.util.BinaryUtils;
  *  Mock for testing Kinesis operation. Based on <code>SelfMock</code>, so subclasses
  *  can override individual Kinesis methods. However, most methods that tests might
  *  want to override have hooks that can be overridden instead; see method docs.
+ *  <p>
+ *  As a convenience for debugging, sequence numbers and shard iterators use the same
+ *  format: STREAM_NAME:SHARD_NUMBER:OFFSET. You can use the {@link IdHelper} class
+ *  to create or parse them.
  */
 public class MockAmazonKinesis
 extends AbstractMock<AmazonKinesis>
 {
-    protected int describePageSize = Integer.MAX_VALUE;
+    protected int describePageSize = 1000;
+    protected int retrievePageSize = 10000;
 
     // this will be updated either during mock configuration or when creating/deleting a stream
     protected Map<String,MockStream> knownStreams = new ConcurrentHashMap<String,MockStream>();
@@ -91,6 +97,61 @@ extends AbstractMock<AmazonKinesis>
 
 
     /**
+     *  Adds records to the named stream; the stream must already exist. May be called
+     *  multiple times; subsequent calls append records to those already in the stream.
+     *  If the stream has multiple shards the records are assigned to shards arbitrarily.
+     */
+    public MockAmazonKinesis withRecords(String streamName, String... records)
+    {
+        return withRecords(streamName, Arrays.asList(records));
+    }
+
+
+    /**
+     *  Adds records to the named stream; the stream must already exist. May be called
+     *  multiple times; subsequent calls append records to those already in the stream.
+     *  If the stream has multiple shards the records are assigned to shards arbitrarily.
+     */
+    public MockAmazonKinesis withRecords(String streamName, List<String> records)
+    {
+        MockStream stream = getMockStream(streamName);
+        for (String record : records)
+        {
+            String partitionKey = createPartitionKey(record);
+            MockShard shard = stream.getShardForPartitionKey(partitionKey);
+            shard.addRecord(partitionKey, record);
+        }
+        return this;
+    }
+
+
+    /**
+     *  Adds records to the a specific shard of the named stream; the stream must already
+     *  exist. The partition keys will be generated, and may not be "correct" for the shard.
+     */
+    public MockAmazonKinesis withRecords(String streamName, int shardNum, String... records)
+    {
+        return withRecords(streamName, shardNum, Arrays.asList(records));
+    }
+
+
+    /**
+     *  Adds records to the a specific shard of the named stream; the stream must already
+     *  exist. The partition keys will be generated, and may not be "correct" for the shard.
+     */
+    public MockAmazonKinesis withRecords(String streamName, int shardNum, List<String> records)
+    {
+        MockStream stream = getMockStream(streamName);
+        MockShard shard = stream.getShardOrThrow(IdHelper.formatShardId(streamName, shardNum));
+        for (String record : records)
+        {
+            shard.addRecord(createPartitionKey(record), record);
+        }
+        return this;
+    }
+
+
+    /**
      *  Defines a sequence of status values and/or exceptions to return from
      *  <code>describeStream()</code>. Specify exceptions as their class, status
      *  values as a <code>StreamStatus</code> enum.
@@ -112,6 +173,16 @@ extends AbstractMock<AmazonKinesis>
     public MockAmazonKinesis withDescribePageSize(int value)
     {
         describePageSize = value;
+        return this;
+    }
+
+
+    /**
+     *  Sets the page size for all "retrieve" calls.
+     */
+    public MockAmazonKinesis withRetrievePageSize(int value)
+    {
+        retrievePageSize = value;
         return this;
     }
 
@@ -151,6 +222,17 @@ extends AbstractMock<AmazonKinesis>
     public MockStream getMockStream(String streamName)
     {
         return knownStreams.get(streamName);
+    }
+
+
+    public MockStream getMockStreamOrThrow(String streamName)
+    {
+        MockStream stream = knownStreams.get(streamName);
+        if(stream == null)
+        {
+            throw new ResourceNotFoundException("no such stream: " + streamName);
+        }
+        return stream;
     }
 
 //----------------------------------------------------------------------------
@@ -198,12 +280,7 @@ extends AbstractMock<AmazonKinesis>
 
     public DecreaseStreamRetentionPeriodResult decreaseStreamRetentionPeriod(DecreaseStreamRetentionPeriodRequest request)
     {
-        String streamName = request.getStreamName();
-        MockStream stream = knownStreams.get(streamName);
-        if(stream == null)
-        {
-            throw new ResourceNotFoundException("no such stream: " + streamName);
-        }
+        MockStream stream = getMockStreamOrThrow(request.getStreamName());
 
         int newRetentionPeriod = request.getRetentionPeriodHours().intValue();
         if (newRetentionPeriod >= stream.retentionPeriod)
@@ -286,6 +363,36 @@ extends AbstractMock<AmazonKinesis>
                .withTargetShardCount(request.getTargetShardCount());
     }
 
+    public GetShardIteratorResult getShardIterator(GetShardIteratorRequest request)
+    {
+        MockStream stream = getMockStreamOrThrow(request.getStreamName());
+        MockShard shard = stream.getShardOrThrow(request.getShardId());
+        return new GetShardIteratorResult()
+               .withShardIterator(
+                   shard.getIterator(request.getShardIteratorType(),
+                                     request.getStartingSequenceNumber()));
+    }
+
+    public GetRecordsResult getRecords(GetRecordsRequest request)
+    {
+        String shardItx = request.getShardIterator();
+        String streamName = IdHelper.extractStreamNameFromSequenceNumber(shardItx);
+        String shardId = IdHelper.extractShardIdFromSequenceNumber(shardItx);
+        int offset = IdHelper.extractOffsetFromSequenceNumber(shardItx);
+
+        MockStream stream = getMockStreamOrThrow(streamName);
+        MockShard shard = stream.getShardOrThrow(shardId);
+
+        List<Record> records = shard.getRecords(offset, retrievePageSize);
+        String nextIterator = shard.getNextIterator(offset + records.size());
+
+        // TODO -- add millis
+        return new GetRecordsResult()
+               .withRecords(records)
+               .withNextShardIterator(nextIterator)
+               .withMillisBehindLatest(Long.valueOf(0));
+    }
+
 
     public void shutdown()
     {
@@ -303,8 +410,8 @@ extends AbstractMock<AmazonKinesis>
      */
     protected PutRecordsResultEntry processRecord(MockStream mockStream, PutRecordsRequestEntry record, int index)
     {
-        MockShard shard = mockStream.getShardForRecord(record);
-        String sequenceNumber = shard.addRecord(record);
+        MockShard shard = mockStream.getShardForPartitionKey(record.getPartitionKey());
+        String sequenceNumber = shard.addRecord(record.getPartitionKey(), record.getData());
 
         return new PutRecordsResultEntry()
                .withShardId(shard.shardId)
@@ -332,6 +439,15 @@ extends AbstractMock<AmazonKinesis>
 //----------------------------------------------------------------------------
 //  Helpers -- should be no need to override these
 //----------------------------------------------------------------------------
+
+    /**
+     *  Generates a partition key from the passed content.
+     */
+    private static String createPartitionKey(String content)
+    {
+        return String.valueOf(content.hashCode());
+    }
+
 
     /**
      *  This class holds a chain of status responses for DescribeStream. These
@@ -382,63 +498,6 @@ extends AbstractMock<AmazonKinesis>
 
 
     /**
-     *  This class holds information about a shard, including the records that
-     *  were written to it. All methods are sycnronized but the internal structures
-     *  are not: my expectation is that they will only be examined by the main test
-     *  thread.
-     */
-    public static class MockShard
-    {
-        public final String shardId;
-
-        protected boolean closed = false;
-        protected List<PutRecordsRequestEntry> records = new ArrayList<PutRecordsRequestEntry>();
-
-        public MockShard(String shardId)
-        {
-            this.shardId = shardId;
-        }
-
-        public synchronized void close()
-        {
-            closed = true;
-        }
-
-        public synchronized String addRecord(PutRecordsRequestEntry record)
-        {
-            String sequenceNumber = formatSequenceNumber(records.size());
-            records.add(record);
-            return sequenceNumber;
-        }
-
-
-        public synchronized Shard asAwsShard()
-        {
-            SequenceNumberRange seqnums = new SequenceNumberRange()
-                                          .withStartingSequenceNumber(formatSequenceNumber(0));
-            if (closed)
-                seqnums.setEndingSequenceNumber(formatSequenceNumber(records.size()));
-
-            return new Shard()
-                   .withShardId(shardId)
-                   .withSequenceNumberRange(seqnums);
-        }
-
-
-        public static String formatSequenceNumber(int ii)
-        {
-            return String.format("%06d", ii);
-        }
-
-
-        public static int parseSequenceNumber(String value)
-        {
-            return Integer.parseInt(value);
-        }
-    }
-
-
-    /**
      *  This class holds information about a single mock stream, including its shards.
      */
     public static class MockStream
@@ -459,6 +518,7 @@ extends AbstractMock<AmazonKinesis>
             reshard(numShards);
         }
 
+
         public synchronized void reshard(int newShardCount)
         {
             // Kinesis is smarter about expanding and collapsing shards, but
@@ -473,7 +533,7 @@ extends AbstractMock<AmazonKinesis>
 
             for (int ii = 0 ; ii < newShardCount ; ii++)
             {
-                MockShard shard = new MockShard(formatShardId(allShards.size()));
+                MockShard shard = new MockShard(IdHelper.formatShardId(streamName, allShards.size()));
                 activeShards.add(shard);
                 allShards.add(shard);
                 shardsById.put(shard.shardId, shard);
@@ -481,9 +541,18 @@ extends AbstractMock<AmazonKinesis>
         }
 
 
-        public synchronized MockShard getShardForRecord(PutRecordsRequestEntry record)
+        public synchronized MockShard getShardOrThrow(String shardId)
         {
-            int shardNum = record.getPartitionKey().hashCode() % activeShards.size();
+            MockShard shard = shardsById.get(shardId);
+            if (shard == null)
+                throw new ResourceNotFoundException("no such shard: " + shardId);
+            return shard;
+        }
+
+
+        public synchronized MockShard getShardForPartitionKey(String partitionKey)
+        {
+            int shardNum = partitionKey.hashCode() % activeShards.size();
             return activeShards.get(shardNum);
         }
 
@@ -491,7 +560,7 @@ extends AbstractMock<AmazonKinesis>
         public synchronized List<Shard> createShardsForDescribe(DescribeStreamRequest request, int pageSize)
         {
             int firstShard = request.getExclusiveStartShardId() != null
-                       ? parseShardId(request.getExclusiveStartShardId()) + 1
+                       ? IdHelper.extractShardNumberFromShardId(request.getExclusiveStartShardId()) + 1
                        : 0;
             int lastShard  = Math.min(firstShard + pageSize, allShards.size());
 
@@ -511,17 +580,160 @@ extends AbstractMock<AmazonKinesis>
             String lastShardId = CollectionUtil.last(allShards).shardId;
             return lastShardId.equals(shardId);
         }
+    }
 
 
-        public String formatShardId(int shardNum)
+    /**
+     *  This class holds information about a shard, including the records that were
+     *  written to it. All methods are sycnhronized but the internal structures are
+     *  not: my expectation is that they will only be examined by the main thread.
+     */
+    public static class MockShard
+    {
+        public final String shardId;
+
+        protected boolean closed = false;
+        protected ArrayList<Record> records = new ArrayList<Record>();
+
+        public MockShard(String shardId)
         {
-            return String.format("%s-%04d", streamName, shardNum);
+            this.shardId = shardId;
         }
 
 
-        public int parseShardId(String value)
+        public synchronized void close()
         {
-            return Integer.parseInt(StringUtil.extractRightOfLast(value, "-"));
+            closed = true;
+        }
+
+
+        public synchronized Shard asAwsShard()
+        {
+            SequenceNumberRange seqnums = new SequenceNumberRange()
+                                          .withStartingSequenceNumber(IdHelper.formatSequenceNumber(shardId, 0));
+            if (closed)
+                seqnums.setEndingSequenceNumber(IdHelper.formatSequenceNumber(shardId, records.size()));
+
+            return new Shard()
+                   .withShardId(shardId)
+                   .withSequenceNumberRange(seqnums);
+        }
+
+
+        public synchronized String addRecord(String partitionKey, String content)
+        {
+            byte[] bytes = StringUtil.toUTF8(content);
+            return addRecord(partitionKey, ByteBuffer.wrap(bytes));
+        }
+
+
+        public synchronized String addRecord(String partitionKey, ByteBuffer content)
+        {
+            String sequenceNumber = IdHelper.formatSequenceNumber(shardId, records.size());
+            records.add(new Record()
+                        .withPartitionKey(partitionKey)
+                        .withData(content)
+                        .withSequenceNumber(sequenceNumber));
+            return sequenceNumber;
+        }
+
+
+        public String getIterator(String iteratorType, String sequenceNumber)
+        {
+            switch (ShardIteratorType.fromValue(iteratorType))
+            {
+                case TRIM_HORIZON :
+                    return IdHelper.formatSequenceNumber(shardId, 0);
+                case LATEST :
+                    return IdHelper.formatSequenceNumber(shardId, records.size());
+                case AFTER_SEQUENCE_NUMBER :
+                    int currentOffset = IdHelper.extractOffsetFromSequenceNumber(sequenceNumber);
+                    return IdHelper.formatSequenceNumber(shardId, currentOffset + 1);
+                default :
+                    throw new IllegalArgumentException("unsupported shard iterator type: " + iteratorType);
+            }
+        }
+
+
+        public List<Record> getRecords(int offset, int size)
+        {
+            List<Record> result = new ArrayList<Record>();
+            int end = Math.min(offset + size, records.size());
+            for (int ii = offset ; ii < end ; ii++)
+            {
+                result.add(records.get(ii));
+            }
+            return result;
+        }
+
+
+        // this is called as a result of GetRecords; it signals whether the shard is closed
+        public String getNextIterator(int offset)
+        {
+            if (closed && (offset == records.size()))
+                return null;
+
+            return IdHelper.formatShardId(shardId, offset);
+        }
+    }
+
+
+    /**
+     *  A helper class for producing and parsing various types of IDs, in the
+     *  format used by this mock. NOT usable to parse actual AWS IDs.
+     */
+    public static class IdHelper
+    {
+        public static String formatShardId(String streamName, int shardNum)
+        {
+            return String.format("%s:%d", streamName, shardNum);
+        }
+
+        public static String extractStreamNameFromShardId(String value)
+        {
+            String[] split = value.split(":");
+            return split[0];
+        }
+
+        public static int extractShardNumberFromShardId(String value)
+        {
+            String[] split = value.split(":");
+            return Integer.parseInt(split[1]);
+        }
+
+        public static String formatSequenceNumber(String streamName, int shardNum, int offset)
+        {
+            return String.format("%s:%d:%d", streamName, shardNum, offset);
+        }
+
+        public static String formatSequenceNumber(String shardId, int offset)
+        {
+            return String.format("%s:%d", shardId, offset);
+        }
+
+        public static String extractShardIdFromSequenceNumber(String value)
+        {
+            String streamName = extractStreamNameFromSequenceNumber(value);
+            int shardNumber = extractShardNumberFromSequenceNumber(value);
+            return formatShardId(streamName, shardNumber);
+        }
+
+        public static String extractStreamNameFromSequenceNumber(String value)
+        {
+            String[] split = value.split(":");
+            return split[0];
+        }
+
+        public static int extractShardNumberFromSequenceNumber(String value)
+        {
+            String[] split = value.split(":");
+            return Integer.parseInt(split[1]);
+        }
+
+        public static int extractOffsetFromSequenceNumber(String value)
+        {
+            String[] split = value.split(":");
+            return Integer.parseInt(split[2]);
         }
     }
 }

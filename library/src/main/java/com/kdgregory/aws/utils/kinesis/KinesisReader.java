@@ -370,8 +370,8 @@ implements Iterable<Record>
             if (shardItx == null)
             {
                 // this will happen if the stream is resized under us; it can also
-                // happen if we reload iterators halfway through an iteration (due
-                // to iterator expiration)
+                // happen if we reload iterators halfway through an iteration due
+                // to iterator expiration
                 return;
             }
 

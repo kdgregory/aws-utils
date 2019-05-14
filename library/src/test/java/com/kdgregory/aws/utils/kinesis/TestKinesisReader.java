@@ -41,6 +41,9 @@ import com.amazonaws.services.kinesis.AmazonKinesis;
 import com.amazonaws.services.kinesis.model.*;
 import com.amazonaws.util.BinaryUtils;
 
+import com.kdgregory.aws.utils.testhelpers.mocks.MockAmazonKinesis;
+import com.kdgregory.aws.utils.testhelpers.mocks.MockAmazonKinesis.IdHelper;
+
 
 /**
  *  Mock-object tests of KinesisUtils.
@@ -56,18 +59,27 @@ public class TestKinesisReader
 //----------------------------------------------------------------------------
 
     private final static String STREAM_NAME = "example";
+    
+    private final static String SHARDID_0 = IdHelper.formatShardId(STREAM_NAME, 0);
+    private final static String SHARDID_1 = IdHelper.formatShardId(STREAM_NAME, 1);
+    private final static String SHARDID_2 = IdHelper.formatShardId(STREAM_NAME, 2);
+    private final static String SHARDID_3 = IdHelper.formatShardId(STREAM_NAME, 3);
+    private final static String SHARDID_4 = IdHelper.formatShardId(STREAM_NAME, 4);
 
-    private final static String SHARDID_0 = formatShardId(0);
-    private final static String SHARDID_1 = formatShardId(1);
-    private final static String SHARDID_2 = formatShardId(2);
-    private final static String SHARDID_3 = formatShardId(3);
-    private final static String SHARDID_4 = formatShardId(4);
+    private final static String OLDSTYLE_SHARDID_0 = formatShardId(0);
+    private final static String OLDSTYLE_SHARDID_1 = formatShardId(1);
+    private final static String OLDSTYLE_SHARDID_2 = formatShardId(2);
+    private final static String OLDSTYLE_SHARDID_3 = formatShardId(3);
+    private final static String OLDSTYLE_SHARDID_4 = formatShardId(4);
 
     private final static List<String> RECORDS_0 = Arrays.asList("foo", "bar", "baz");
     private final static List<String> RECORDS_1 = Arrays.asList("argle", "bargle");
     private final static List<String> RECORDS_2 = Arrays.asList("bingo", "zippy");
     private final static List<String> RECORDS_3 = Arrays.asList("crunchy", "bits");
     private final static List<String> RECORDS_4 = Arrays.asList("norwegian", "blue");
+    
+    private final static String LAST_SEQNUM_0 = IdHelper.formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1);
+    private final static String LAST_SEQNUM_1 = IdHelper.formatSequenceNumber(SHARDID_1, RECORDS_1.size() - 1);
 
 
 //----------------------------------------------------------------------------
@@ -118,7 +130,7 @@ public class TestKinesisReader
 
 
     /**
-     *  Retrieves all records from a single iteration of the reader. Verifies
+     *  Retrieves all records from a single iteration of the reader, and verifies
      *  that the reader's offsets are updated after each record is read.
      */
     private static List<String> retrieveRecords(KinesisReader reader)
@@ -129,9 +141,13 @@ public class TestKinesisReader
         {
             byte[] recordData = BinaryUtils.copyAllBytesFrom(record.getData());
             retrievedRecords.add(new String(recordData, "UTF-8"));
-            assertEquals("offsets have been updated",
-                         record.getSequenceNumber(),
-                         reader.getCurrentSequenceNumbers().get(extractShardIdFromSeqnum(record.getSequenceNumber())));
+            boolean recordedSeqnum = false;
+            // TODO - after all tests converted, use the helper to extract shard ID from record
+            for (String seqnum : reader.getCurrentSequenceNumbers().values())
+            {
+                recordedSeqnum |= seqnum.equals(record.getSequenceNumber());
+            }
+            assertTrue("reader recorded record's sequence number", recordedSeqnum);
         }
         return retrievedRecords;
     }
@@ -298,24 +314,24 @@ public class TestKinesisReader
     public void testSingleShardNoOffsetsDefaultTrimHorizon() throws Exception
     {
         myLogger.info("testSingleShardNoOffsetsDefaultTrimHorizon");
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0)
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
         {
             @Override
-            protected void assertShardIteratorRequest(GetShardIteratorRequest request)
+            public GetShardIteratorResult getShardIterator(GetShardIteratorRequest request)
             {
                 assertEquals("iterator type", ShardIteratorType.TRIM_HORIZON, ShardIteratorType.fromValue(request.getShardIteratorType()));
+                return super.getShardIterator(request);
             }
-        };
+        }
+        .withStream(STREAM_NAME, 1)
+        .withRecords(STREAM_NAME, RECORDS_0);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).readFromTrimHorizon();
 
-        assertEquals("retrieved records",       RECORDS_0,
-                                                retrieveRecords(reader));
-        assertEquals("saved offsets, size",     1,
-                                                reader.getCurrentSequenceNumbers().size());
-        assertEquals("saved offsets, shard 0",  formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
-                                                reader.getCurrentSequenceNumbers().get(SHARDID_0));
+        assertEquals("retrieved records",       RECORDS_0,      retrieveRecords(reader));
+        assertEquals("saved offsets size",      1,              reader.getCurrentSequenceNumbers().size());
+        assertEquals("saved offset value",      LAST_SEQNUM_0,  reader.getCurrentSequenceNumbers().get(SHARDID_0));
     }
 
 
@@ -323,24 +339,23 @@ public class TestKinesisReader
     public void testSingleShardNoOffsetsDefaultLatest() throws Exception
     {
         myLogger.info("testSingleShardNoOffsetsDefaultLatest");
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0)
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
         {
             @Override
-            protected void assertShardIteratorRequest(GetShardIteratorRequest request)
+            public GetShardIteratorResult getShardIterator(GetShardIteratorRequest request)
             {
                 assertEquals("iterator type", ShardIteratorType.LATEST, ShardIteratorType.fromValue(request.getShardIteratorType()));
+                return super.getShardIterator(request);
             }
-        };
+        }
+        .withStream(STREAM_NAME, 1)
+        .withRecords(STREAM_NAME, RECORDS_0);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME);
 
-        // we don't retrieve any records, so we don't save any offsets
-
-        assertEquals("retrieved records",       Collections.emptyList(),
-                                                retrieveRecords(reader));
-        assertEquals("saved offsets, size",     0,
-                                                reader.getCurrentSequenceNumbers().size());
+        assertEquals("retrieved records",   Collections.emptyList(),    retrieveRecords(reader));
+        assertEquals("saved offsets size",  0,                          reader.getCurrentSequenceNumbers().size());
     }
 
 
@@ -348,21 +363,24 @@ public class TestKinesisReader
     public void testSingleShardWithOffsets() throws Exception
     {
         myLogger.info("testSingleShardWithOffsets");
-
-        final String sequenceNumber0 = formatSequenceNumber(SHARDID_0, 0);
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0)
+        
+        final String initialSequenceNumber = MockAmazonKinesis.IdHelper.formatSequenceNumber(STREAM_NAME, 0, 0);
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
         {
             @Override
-            protected void assertShardIteratorRequest(GetShardIteratorRequest request)
+            public GetShardIteratorResult getShardIterator(GetShardIteratorRequest request)
             {
                 assertEquals("iterator type",   ShardIteratorType.AFTER_SEQUENCE_NUMBER, ShardIteratorType.fromValue(request.getShardIteratorType()));
-                assertEquals("sequence number", sequenceNumber0,                         request.getStartingSequenceNumber());
+                assertEquals("sequence number", initialSequenceNumber,                   request.getStartingSequenceNumber());
+                return super.getShardIterator(request);
             }
-        };
-
+        }
+        .withStream(STREAM_NAME, 1)
+        .withRecords(STREAM_NAME, RECORDS_0);
+        
         Map<String,String> offsets = new HashMap<String,String>();
-        offsets.put(SHARDID_0, sequenceNumber0);
+        offsets.put(MockAmazonKinesis.IdHelper.formatShardId(STREAM_NAME, 0), initialSequenceNumber);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).withInitialSequenceNumbers(offsets);
 
@@ -370,7 +388,7 @@ public class TestKinesisReader
                                                 retrieveRecords(reader));
         assertEquals("saved offsets, size",     1,
                                                 reader.getCurrentSequenceNumbers().size());
-        assertEquals("saved offsets, shard 0",  formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
+        assertEquals("saved offsets, value",    LAST_SEQNUM_0,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
     }
 
@@ -379,31 +397,24 @@ public class TestKinesisReader
     public void testSingleShardRepeatedRead() throws Exception
     {
         myLogger.info("testSingleShardRepeatedRead");
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0)
-        {
-            @Override
-            protected List<Record> limitReturnedRecords(List<Record> records)
-            {
-                if (records.size() > 2)
-                    records = records.subList(0, 2);
-                return records;
-            }
-
-        };
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
+            .withStream(STREAM_NAME, 1)
+            .withRecords(STREAM_NAME, RECORDS_0)
+            .withRetrievePageSize(2);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).readFromTrimHorizon();
 
         List<String> firstRead = retrieveRecords(reader);
         assertEquals("first read, records",     RECORDS_0.subList(0, 2),
                                                 firstRead);
-        assertEquals("first read, offsets",     formatSequenceNumber(SHARDID_0, 1),
+        assertEquals("first read, offsets",     IdHelper.formatSequenceNumber(SHARDID_0, 1),
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
 
         List<String> secondRead = retrieveRecords(reader);
         assertEquals("second read, records",    RECORDS_0.subList(2, RECORDS_0.size()),
                                                 secondRead);
-        assertEquals("second read, offsets",    formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
+        assertEquals("second read, offsets",    LAST_SEQNUM_0,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
     }
 
@@ -412,40 +423,49 @@ public class TestKinesisReader
     public void testSingleShardAtEndOfStreamDoesNotRepeat() throws Exception
     {
         myLogger.info("testSingleShardAtEndOfStreamDoesNotRepeat");
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0);
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
+            .withStream(STREAM_NAME, 1)
+            .withRecords(STREAM_NAME, RECORDS_0);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).readFromTrimHorizon();
 
         List<String> firstRead = retrieveRecords(reader);
         assertEquals("first read, records",     RECORDS_0,
                                                 firstRead);
-        assertEquals("first read, offsets",     formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
+        assertEquals("first read, offsets",     LAST_SEQNUM_0,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
 
         List<String> secondRead = retrieveRecords(reader);
         assertEquals("second read, records",    Collections.emptyList(),
                                                 secondRead);
-        assertEquals("second read, offsets",    formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
+        assertEquals("second read, offsets",    LAST_SEQNUM_0,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
     }
+    
+    
+    // TODO - add test that adds records after reader was created
 
 
     @Test
     public void testMultipleShardsNoOffsetsDefaultTrimHorizon() throws Exception
     {
         myLogger.info("testMultipleShardsNoOffsetsDefaultTrimHorizon");
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
+            .withStream(STREAM_NAME, 2)
+            .withRecords(STREAM_NAME, 0, RECORDS_0)
+            .withRecords(STREAM_NAME, 1, RECORDS_1);
 
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0, RECORDS_1);
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).readFromTrimHorizon();
 
         assertEquals("retrieved records",       CollectionUtil.combine(new ArrayList<String>(), RECORDS_0, RECORDS_1),
                                                 retrieveRecords(reader));
         assertEquals("saved offsets, size",     2,
                                                 reader.getCurrentSequenceNumbers().size());
-        assertEquals("saved offsets, shard 0",  formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
+        assertEquals("saved offsets, shard 0",  LAST_SEQNUM_0,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
-        assertEquals("saved offsets, shard 1",  formatSequenceNumber(SHARDID_1, RECORDS_1.size() - 1),
+        assertEquals("saved offsets, shard 1",  LAST_SEQNUM_1,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_1));
     }
 
@@ -455,14 +475,14 @@ public class TestKinesisReader
     {
         myLogger.info("testMultipleShardsWithOffsets");
 
-        final String sequenceNumber0 = formatSequenceNumber(SHARDID_0, 0);
-        final String sequenceNumber1 = formatSequenceNumber(SHARDID_1, 0);
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0, RECORDS_1)
+        final String sequenceNumber0 = MockAmazonKinesis.IdHelper.formatSequenceNumber(STREAM_NAME, 0, 0);
+        final String sequenceNumber1 = MockAmazonKinesis.IdHelper.formatSequenceNumber(STREAM_NAME, 1, 0);
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
         {
             @Override
-            protected void assertShardIteratorRequest(GetShardIteratorRequest request)
-            {
+            public GetShardIteratorResult getShardIterator(GetShardIteratorRequest request)
+            {                
                 if (request.getShardId().equals(SHARDID_0))
                 {
                     assertEquals("shard 0 iterator type",   ShardIteratorType.AFTER_SEQUENCE_NUMBER, ShardIteratorType.fromValue(request.getShardIteratorType()));
@@ -477,8 +497,12 @@ public class TestKinesisReader
                 {
                     fail("unexpected shard: " + request.getShardId());
                 }
+                return super.getShardIterator(request);
             }
-        };
+        }
+        .withStream(STREAM_NAME, 2)
+        .withRecords(STREAM_NAME, 0, RECORDS_0)
+        .withRecords(STREAM_NAME, 1, RECORDS_1);
 
         Map<String,String> offsets = new HashMap<String,String>();
         offsets.put(SHARDID_0, sequenceNumber0);
@@ -492,9 +516,9 @@ public class TestKinesisReader
                                                 retrieveRecords(reader));
         assertEquals("saved offsets, size",     2,
                                                 reader.getCurrentSequenceNumbers().size());
-        assertEquals("saved offsets, shard 0",  formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
+        assertEquals("saved offsets, shard 0",  LAST_SEQNUM_0,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_0));
-        assertEquals("saved offsets, shard 1",  formatSequenceNumber(SHARDID_1, RECORDS_1.size() - 1),
+        assertEquals("saved offsets, shard 1",  LAST_SEQNUM_1,
                                                 reader.getCurrentSequenceNumbers().get(SHARDID_1));
     }
 
@@ -504,28 +528,32 @@ public class TestKinesisReader
     {
         myLogger.info("testMultipleShardsOnlyOneHasOffsets");
 
-        final String sequenceNumber0 = formatSequenceNumber(SHARDID_0, 0);
-
-        KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0, RECORDS_1)
+        final String sequenceNumber0 = MockAmazonKinesis.IdHelper.formatSequenceNumber(STREAM_NAME, 0, 0);
+        
+        MockAmazonKinesis mock = new MockAmazonKinesis()
         {
             @Override
-            protected void assertShardIteratorRequest(GetShardIteratorRequest request)
-            {
+            public GetShardIteratorResult getShardIterator(GetShardIteratorRequest request)
+            {                
                 if (request.getShardId().equals(SHARDID_0))
                 {
-                    assertEquals("shard 0 iterator type", ShardIteratorType.AFTER_SEQUENCE_NUMBER, ShardIteratorType.fromValue(request.getShardIteratorType()));
+                    assertEquals("shard 0 iterator type",   ShardIteratorType.AFTER_SEQUENCE_NUMBER, ShardIteratorType.fromValue(request.getShardIteratorType()));
                     assertEquals("shard 0 sequence number", sequenceNumber0, request.getStartingSequenceNumber());
                 }
                 else if (request.getShardId().equals(SHARDID_1))
                 {
-                    assertEquals("shard 1 iterator type", ShardIteratorType.TRIM_HORIZON, ShardIteratorType.fromValue(request.getShardIteratorType()));
+                    assertEquals("shard 1 iterator type",   ShardIteratorType.TRIM_HORIZON, ShardIteratorType.fromValue(request.getShardIteratorType()));
                 }
                 else
                 {
                     fail("unexpected shard: " + request.getShardId());
                 }
+                return super.getShardIterator(request);
             }
-        };
+        }
+        .withStream(STREAM_NAME, 2)
+        .withRecords(STREAM_NAME, 0, RECORDS_0)
+        .withRecords(STREAM_NAME, 1, RECORDS_1);
 
         Map<String,String> offsets = new HashMap<String,String>();
         offsets.put(SHARDID_0, sequenceNumber0);
@@ -552,18 +580,18 @@ public class TestKinesisReader
             protected List<Shard> createShards(Collection<String> shardIds)
             {
                 Shard shard0 = new Shard()
-                                 .withShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_0, 0))
-                                     .withEndingSequenceNumber(formatSequenceNumber(SHARDID_0, RECORDS_0.size())));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_0, 0))
+                                     .withEndingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_0, RECORDS_0.size())));
 
                 Shard shard1 = new Shard()
-                                 .withShardId(SHARDID_1)
-                                 .withParentShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_1)
+                                 .withParentShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_1, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_1, 0)));
 
                 return Arrays.asList(shard0, shard1);
             }
@@ -572,11 +600,11 @@ public class TestKinesisReader
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).readFromTrimHorizon();
 
         assertEquals("records from first read", RECORDS_0, retrieveRecords(reader));
-        assertNotNull("after first read, has offsets for parent",   reader.getCurrentSequenceNumbers().get(SHARDID_0));
-        assertNull("after first read, has no offsets for child",     reader.getCurrentSequenceNumbers().get(SHARDID_1));
+        assertNotNull("after first read, has offsets for parent",   reader.getCurrentSequenceNumbers().get(OLDSTYLE_SHARDID_0));
+        assertNull("after first read, has no offsets for child",     reader.getCurrentSequenceNumbers().get(OLDSTYLE_SHARDID_1));
 
         assertEquals("records from second read", RECORDS_1, retrieveRecords(reader));
-        assertNotNull("after second read, has offsets for child",   reader.getCurrentSequenceNumbers().get(SHARDID_1));
+        assertNotNull("after second read, has offsets for child",   reader.getCurrentSequenceNumbers().get(OLDSTYLE_SHARDID_1));
     }
 
 
@@ -585,7 +613,7 @@ public class TestKinesisReader
     {
         myLogger.info("testUnbalancedTreeOffsetsOnShortSide");
 
-        final String sequenceNumber1 = formatSequenceNumber(SHARDID_1, 0);
+        final String sequenceNumber1 = formatSequenceNumber(OLDSTYLE_SHARDID_1, 0);
 
         KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0, RECORDS_1, RECORDS_2, RECORDS_3, RECORDS_4)
         {
@@ -593,40 +621,40 @@ public class TestKinesisReader
             protected List<Shard> createShards(Collection<String> shardIds)
             {
                 Shard shard0 = new Shard()
-                                 .withShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_0, 0))
-                                     .withEndingSequenceNumber(formatSequenceNumber(SHARDID_0, RECORDS_0.size())));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_0, 0))
+                                     .withEndingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_0, RECORDS_0.size())));
 
                 Shard shard1 = new Shard()
-                                 .withShardId(SHARDID_1)
-                                 .withParentShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_1)
+                                 .withParentShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_1, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_1, 0)));
 
                 Shard shard2 = new Shard()
-                                 .withShardId(SHARDID_2)
-                                 .withParentShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_2)
+                                 .withParentShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_2, 0))
-                                     .withEndingSequenceNumber(formatSequenceNumber(SHARDID_2, RECORDS_2.size())));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_2, 0))
+                                     .withEndingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_2, RECORDS_2.size())));
 
                 Shard shard3 = new Shard()
-                                 .withShardId(SHARDID_3)
-                                 .withParentShardId(SHARDID_2)
+                                 .withShardId(OLDSTYLE_SHARDID_3)
+                                 .withParentShardId(OLDSTYLE_SHARDID_2)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_3, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_3, 0)));
 
                 Shard shard4 = new Shard()
-                                 .withShardId(SHARDID_4)
-                                 .withParentShardId(SHARDID_2)
+                                 .withShardId(OLDSTYLE_SHARDID_4)
+                                 .withParentShardId(OLDSTYLE_SHARDID_2)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_4, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_4, 0)));
 
                 return Arrays.asList(shard0, shard1, shard2, shard3, shard4);
             }
@@ -634,11 +662,11 @@ public class TestKinesisReader
             @Override
             protected void assertShardIteratorRequest(GetShardIteratorRequest request)
             {
-                if (request.getShardId().equals(SHARDID_0))
+                if (request.getShardId().equals(OLDSTYLE_SHARDID_0))
                 {
                     fail("should not have queried shard 0");
                 }
-                else if (request.getShardId().equals(SHARDID_1))
+                else if (request.getShardId().equals(OLDSTYLE_SHARDID_1))
                 {
                     assertEquals("shard 1 iterator type",   ShardIteratorType.AFTER_SEQUENCE_NUMBER, ShardIteratorType.fromValue(request.getShardIteratorType()));
                     assertEquals("shard 1 sequence number", sequenceNumber1,                         request.getStartingSequenceNumber());
@@ -651,7 +679,7 @@ public class TestKinesisReader
         };
 
         Map<String,String> offsets = new HashMap<String,String>();
-        offsets.put(SHARDID_1, sequenceNumber1);
+        offsets.put(OLDSTYLE_SHARDID_1, sequenceNumber1);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).withInitialSequenceNumbers(offsets);
 
@@ -675,7 +703,7 @@ public class TestKinesisReader
     {
         myLogger.info("testUnbalancedTreeOffsetsOnLongSide");
 
-        final String sequenceNumber4 = formatSequenceNumber(SHARDID_4, 0);
+        final String sequenceNumber4 = formatSequenceNumber(OLDSTYLE_SHARDID_4, 0);
 
         KinesisMock mock = new KinesisMock(STREAM_NAME, RECORDS_0, RECORDS_1, RECORDS_2, RECORDS_3, RECORDS_4)
         {
@@ -683,40 +711,40 @@ public class TestKinesisReader
             protected List<Shard> createShards(Collection<String> shardIds)
             {
                 Shard shard0 = new Shard()
-                                 .withShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_0, 0))
-                                     .withEndingSequenceNumber(formatSequenceNumber(SHARDID_0, RECORDS_0.size())));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_0, 0))
+                                     .withEndingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_0, RECORDS_0.size())));
 
                 Shard shard1 = new Shard()
-                                 .withShardId(SHARDID_1)
-                                 .withParentShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_1)
+                                 .withParentShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_1, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_1, 0)));
 
                 Shard shard2 = new Shard()
-                                 .withShardId(SHARDID_2)
-                                 .withParentShardId(SHARDID_0)
+                                 .withShardId(OLDSTYLE_SHARDID_2)
+                                 .withParentShardId(OLDSTYLE_SHARDID_0)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_2, 0))
-                                     .withEndingSequenceNumber(formatSequenceNumber(SHARDID_2, RECORDS_2.size())));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_2, 0))
+                                     .withEndingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_2, RECORDS_2.size())));
 
                 Shard shard3 = new Shard()
-                                 .withShardId(SHARDID_3)
-                                 .withParentShardId(SHARDID_2)
+                                 .withShardId(OLDSTYLE_SHARDID_3)
+                                 .withParentShardId(OLDSTYLE_SHARDID_2)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_3, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_3, 0)));
 
                 Shard shard4 = new Shard()
-                                 .withShardId(SHARDID_4)
-                                 .withParentShardId(SHARDID_2)
+                                 .withShardId(OLDSTYLE_SHARDID_4)
+                                 .withParentShardId(OLDSTYLE_SHARDID_2)
                                  .withSequenceNumberRange(
                                      new SequenceNumberRange()
-                                     .withStartingSequenceNumber(formatSequenceNumber(SHARDID_4, 0)));
+                                     .withStartingSequenceNumber(formatSequenceNumber(OLDSTYLE_SHARDID_4, 0)));
 
                 return Arrays.asList(shard0, shard1, shard2, shard3, shard4);
             }
@@ -724,23 +752,23 @@ public class TestKinesisReader
             @Override
             protected void assertShardIteratorRequest(GetShardIteratorRequest request)
             {
-                if (request.getShardId().equals(SHARDID_0))
+                if (request.getShardId().equals(OLDSTYLE_SHARDID_0))
                 {
                     fail("should not have queried shard 0");
                 }
-                else if (request.getShardId().equals(SHARDID_1))
+                else if (request.getShardId().equals(OLDSTYLE_SHARDID_1))
                 {
                     assertEquals("shard 1 iterator type",   ShardIteratorType.TRIM_HORIZON, ShardIteratorType.fromValue(request.getShardIteratorType()));
                 }
-                else if (request.getShardId().equals(SHARDID_2))
+                else if (request.getShardId().equals(OLDSTYLE_SHARDID_2))
                 {
                     fail("should not have queried shard 2");
                 }
-                else if (request.getShardId().equals(SHARDID_3))
+                else if (request.getShardId().equals(OLDSTYLE_SHARDID_3))
                 {
                     assertEquals("shard 3 iterator type",   ShardIteratorType.TRIM_HORIZON, ShardIteratorType.fromValue(request.getShardIteratorType()));
                 }
-                else if (request.getShardId().equals(SHARDID_4))
+                else if (request.getShardId().equals(OLDSTYLE_SHARDID_4))
                 {
                     assertEquals("shard 4 iterator type",   ShardIteratorType.AFTER_SEQUENCE_NUMBER, ShardIteratorType.fromValue(request.getShardIteratorType()));
                     assertEquals("shard 4 sequence number", sequenceNumber4,                         request.getStartingSequenceNumber());
@@ -753,7 +781,7 @@ public class TestKinesisReader
         };
 
         Map<String,String> offsets = new HashMap<String,String>();
-        offsets.put(SHARDID_4, sequenceNumber4);
+        offsets.put(OLDSTYLE_SHARDID_4, sequenceNumber4);
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME).withInitialSequenceNumbers(offsets);
 
@@ -785,8 +813,8 @@ public class TestKinesisReader
                                                 retrieveRecords(reader));
         assertEquals("saved offsets, size",     1,
                                                 reader.getCurrentSequenceNumbers().size());
-        assertEquals("saved offsets, shard 0",  formatSequenceNumber(SHARDID_0, RECORDS_0.size() - 1),
-                                                reader.getCurrentSequenceNumbers().get(SHARDID_0));
+        assertEquals("saved offsets, shard 0",  formatSequenceNumber(OLDSTYLE_SHARDID_0, RECORDS_0.size() - 1),
+                                                reader.getCurrentSequenceNumbers().get(OLDSTYLE_SHARDID_0));
     }
 
 
@@ -871,7 +899,7 @@ public class TestKinesisReader
         };
 
         Map<String,String> offsets = new HashMap<String,String>();
-        offsets.put(SHARDID_0, formatSequenceNumber(SHARDID_0, 0));
+        offsets.put(OLDSTYLE_SHARDID_0, formatSequenceNumber(OLDSTYLE_SHARDID_0, 0));
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME)
                                .withInitialSequenceNumbers(offsets)
@@ -905,7 +933,7 @@ public class TestKinesisReader
         };
 
         Map<String,String> offsets = new HashMap<String,String>();
-        offsets.put(SHARDID_0, formatSequenceNumber(SHARDID_0, 0));
+        offsets.put(OLDSTYLE_SHARDID_0, formatSequenceNumber(OLDSTYLE_SHARDID_0, 0));
 
         KinesisReader reader = new KinesisReader(mock.getInstance(), STREAM_NAME)
                                .withInitialSequenceNumbers(offsets)
