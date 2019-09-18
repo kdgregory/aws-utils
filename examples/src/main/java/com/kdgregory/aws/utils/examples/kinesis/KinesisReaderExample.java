@@ -75,7 +75,7 @@ public class KinesisReaderExample
             }
 
             System.out.println("Offsets: " + reader.getCurrentSequenceNumbers());
-            Thread.sleep(1000);
+            Thread.sleep(10000);
         }
     }
 }
