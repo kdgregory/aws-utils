@@ -89,6 +89,13 @@ However, many exceptions are non-recoverable, and are allowed to propagate. Your
 should always be prepared to handle exceptions thrown by the underlying APIs.
 
 
+### Throttling and Retries
+
+Any AWS operation is subject to throttling: if you invoke the operation too frequently,
+it will throw an exception. Most of the utility methods are resilient to throttling,
+and will retry their operation. Those that aren't are documented as such.
+
+
 ### Batching and Background Execution
 
 Most operations are intended to be called synchronously: the calling thread will wait
