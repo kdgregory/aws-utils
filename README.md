@@ -53,9 +53,14 @@ clients are intended to be long-lived, and shared between multiple threads.
 ### Logging
 
 This library uses [commons-logging](http://commons.apache.org/proper/commons-logging/) version
-1.1.3, which is also a dependency of the AWS SDK. If you exlude the SDK's transitive dependency
-and do not provide a replacement (such as `jcl-over-slf4j`), some operations will throw a
-`NoClassDefFoundError`.
+1.1.3, which is also a dependency of the AWS SDK. Unlike the SDK, it does not have establish a
+transitive dependency on commons-logging. If you want to use a logging framework that's not
+supported by commons-logging, you'll need to explicitly exclude the latter from the SDK. The
+[example POM](https://github.com/kdgregory/aws-java-utils/blob/dev-README/examples/pom.xml#L71)
+shows how to do this for SLF4J/Logback.
+
+> **Warning:** if you exclude the SDK's transitive dependency and do not provide a replacement,
+  some operations will throw a `NoClassDefFoundError`.
 
 > Note: the tests for the main library have a dependency on Log4J 1.x, because some tests
   look at logging output and I already had an "interceptor" for that framework. The examples
@@ -66,8 +71,8 @@ for unexpected situations (such as a timeout expiring before a resource becomes 
 library does not use info- or error-level logging (I believe that errors should be reserved
 for situations where someone needs to be woken up, and only you can decide that).
 
-Loggers are configured using the class name as logger name. With a hierarchical logging
-framework such as Log4J, you can turn off all logging with the top-level package name:
+Loggers use the class name as logger name. With a hierarchical logging framework such as Log4J,
+you can turn off all logging with the top-level package name:
 
 ```
 log4j.logger.com.kdgregory.aws.utils=OFF
