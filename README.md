@@ -132,9 +132,13 @@ This project contains three directories:
 
 I follow the standard `MAJOR.MINOR.PATCH` versioning scheme:
 
-* `MAJOR` tracks the AWS SDK major version (currently only version 1 is supported, not version 2).
-* `MINOR` tracks the AWS SDK minor version (currently 11).
-* `PATCH` is incremented whenever functionality is added.
+* `MAJOR` tracks the AWS SDK major version (always 1)
+* `MINOR` tracks the AWS SDK minor version (always 11).
+* `PATCH` is incremented whenever functionality is added/fixed.
+
+I will not make breaking API changes, unless such changes represent a complete misunderstanding on my
+part about how the service operates. In that case, I will deprecate the relevant classes/methods for
+one release, and update their JavaDoc to warn against their use.
   
 Not all versions will be released to Maven Central. I may choose to make release (non-snapshot) versions for
 development testing, or as interim steps of a bigger piece of functionality. However, all release versions
