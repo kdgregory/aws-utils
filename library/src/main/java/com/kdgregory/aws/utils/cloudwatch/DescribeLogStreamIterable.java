@@ -1,0 +1,202 @@
+// Copyright (c) Keith D Gregory
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package com.kdgregory.aws.utils.cloudwatch;
+
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import com.amazonaws.services.logs.AWSLogs;
+import com.amazonaws.services.logs.model.*;
+
+import com.kdgregory.aws.utils.CommonUtils;
+
+/**
+ *  Retrieves a listing of log streams, automatically handling pagination and
+ *  throttling.
+ *
+ *  When throttled, will retry with exponential backoff; you can control the
+ *  base retry delay and number of retries, or use the default (5 retries,
+ *  100ms base delay increasing to 1600ms). Once the retry count is exceeded,
+ *  the exception is allowed to propagate. After a successful read, the delay
+ *  is reset to its base level.
+ *
+ *  All other exceptions are allowed to propage. Throttling exceptions are
+ *  logged at DEBUG level; all other exceptions are unlogged.
+ *
+ *  Attempting to iterate a non-existent log group returns an empty iterator.
+ *
+ *  This class is not thread-safe.
+ */
+public class DescribeLogStreamIterable
+implements Iterable<LogStream>
+{
+    private final static int DEFAULT_RETRIES = 5;
+    private final static long DEFAULT_RETRY_DELAY = 100;
+
+    private Log logger = LogFactory.getLog(getClass());
+
+    private AWSLogs client;
+    private String groupName;
+    private String prefix;
+    private int maxRetries;
+    private long retryDelay;
+
+
+    /**
+     *  Base constructor.
+     *
+     *  @param  client      The AWS client used to describe streams.
+     *  @param  logGroup    The name of the log group whose streams you want to iterate.
+     *  @param  prefix      An optional prefix: only streams that start with this prefix
+     *                      will be returned. May be null or empty to return all streams.
+     *  @param  maxRetries  The maximum number of times that a request will be retried
+     *                      if rejected due to throttling. Once this limit is exceeded, 
+     *                      the exception is propagated.
+     *  @param  retryDelay  The base delay, in milliseconds, between retries. Each retry
+     *                      will be double the length of the previous (resetting on success).
+     */
+    public DescribeLogStreamIterable(AWSLogs client, String logGroup, String prefix, int maxRetries, long retryDelay)
+    {
+        this.client = client;
+        this.groupName = logGroup;
+        this.prefix = prefix;
+        this.maxRetries = maxRetries;
+        this.retryDelay = retryDelay;
+    }
+
+
+    /**
+     *  Iterates over log streams with a specified prefix, using default retry behavior.
+     *
+     *  @param  client      The AWS client used to describe streams.
+     *  @param  logGroup    The name of the log group whose streams you want to iterate.
+     *  @param  prefix      An optional prefix: only streams that start with this prefix
+     *                      will be returned. May be null or empty to return all streams.
+     */
+    public DescribeLogStreamIterable(AWSLogs client, String logGroupName, String prefix)
+    {
+        this(client, logGroupName, prefix, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
+    }
+
+
+    /**
+     *  Iterates over log streams in a group, using default retry behavior.
+     *
+     *  @param  client      The AWS client used to describe streams.
+     *  @param  logGroup    The name of the log group whose streams you want to iterate.
+     */
+    public DescribeLogStreamIterable(AWSLogs client, String logGroupName)
+    {
+        this(client, logGroupName, null);
+    }
+
+
+    @Override
+    public Iterator<LogStream> iterator()
+    {
+        return new LogStreamIterator();
+    }
+
+//----------------------------------------------------------------------------
+//  Internals
+//----------------------------------------------------------------------------
+
+    /**
+     *  Executes the actual describe, with retry logic.
+     */
+    private DescribeLogStreamsResult doDescribe(DescribeLogStreamsRequest request)
+    {
+        AWSLogsException preserved = null;
+        long currentDelay = retryDelay;
+
+        for (int ii = 0 ; ii < maxRetries ; ii++)
+        {
+            try
+            {
+                return client.describeLogStreams(request);
+            }
+            catch (AWSLogsException ex)
+            {
+                preserved = (AWSLogsException)ex;
+                if ("ThrottlingException".equals(ex.getErrorCode()))
+                {
+                    logger.debug("describeLogStreams() throttled; current delay " + currentDelay + " ms");
+                    CommonUtils.sleepQuietly(currentDelay);
+                    currentDelay *= 2;
+                }
+                else
+                {
+                    throw ex;
+                }
+            }
+        }
+
+        throw preserved;
+    }
+
+
+    private class LogStreamIterator
+    implements Iterator<LogStream>
+    {
+        private DescribeLogStreamsResult currentBatch;
+        private Iterator<LogStream> currentItx;
+
+        @Override
+        public boolean hasNext()
+        {
+            if ((currentItx != null) && currentItx.hasNext())
+                return true;
+
+            if ((currentBatch != null) && ((currentBatch.getNextToken() == null) || currentBatch.getNextToken().isEmpty()))
+                return false;
+
+            DescribeLogStreamsRequest request = new DescribeLogStreamsRequest(groupName);
+            if ((prefix != null) && !prefix.isEmpty())
+                request.setLogStreamNamePrefix(prefix);
+
+            if (currentBatch != null)
+                request.setNextToken(currentBatch.getNextToken());
+
+            try
+            {
+                currentBatch = doDescribe(request);
+                currentItx = currentBatch.getLogStreams().iterator();
+                return currentItx.hasNext();
+            }
+            catch (ResourceNotFoundException ex)
+            {
+                return false;
+            }
+        }
+
+        @Override
+        public LogStream next()
+        {
+            if (hasNext())
+                return currentItx.next();
+
+            throw new NoSuchElementException();
+        }
+
+        @Override
+        public void remove()
+        {
+            throw new UnsupportedOperationException("can not delete log streams via iterator");
+        }
+    }
+}
