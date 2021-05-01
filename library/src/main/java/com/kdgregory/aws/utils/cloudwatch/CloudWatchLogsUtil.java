@@ -324,6 +324,7 @@ public class CloudWatchLogsUtil
         long timeoutAt = System.currentTimeMillis() + timeout;
         while (System.currentTimeMillis() < timeoutAt)
         {
+            // FIXME - handle throttling
             LogGroup group = describeLogGroup(client, groupName);
             if (group != null)
                 return group;

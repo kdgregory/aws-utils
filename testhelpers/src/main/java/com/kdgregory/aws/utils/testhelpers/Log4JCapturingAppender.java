@@ -97,7 +97,6 @@ extends AppenderSkeleton
 
     /**
      *  Assets that a particular log entry matches the specified regex.
-     * @param expectedLevel TODO
      */
     public void assertLogEntry(int idx, Level expectedLevel, String expectedRegex)
     {

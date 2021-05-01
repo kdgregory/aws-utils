@@ -55,6 +55,7 @@ public class TestCloudWatchLogsUtil
 //----------------------------------------------------------------------------
 
     @Test
+    // note: this is implemented with LogGroupIterable; detailed testing happens there
     public void testDescribeLogGroups() throws Exception
     {
         MockAWSLogs mock = new MockAWSLogs()
@@ -71,40 +72,7 @@ public class TestCloudWatchLogsUtil
 
 
     @Test
-    public void testDescribeLogGroupsWithPrefix() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo")
-                                 .withGroupAndStreams("bar")
-                                 .withGroupAndStreams("baz");
-        AWSLogs client = mock.getInstance();
-
-        List<LogGroup> groups = CloudWatchLogsUtil.describeLogGroups(client, "ba");
-        assertLogGroupNames(groups, "bar", "baz");
-
-        testLog.assertLogSize(0);
-    }
-
-
-    @Test
-    public void testDescribeLogGroupsWithPagination() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo")
-                                 .withGroupAndStreams("bar")
-                                 .withGroupAndStreams("baz")
-                                 .withPageSize(2);
-        AWSLogs client = mock.getInstance();
-
-        List<LogGroup> groups = CloudWatchLogsUtil.describeLogGroups(client, "ba");
-        assertLogGroupNames(groups, "bar", "baz");
-        mock.assertInvocationCount("describeLogGroups", 2);
-
-        testLog.assertLogSize(0);
-    }
-
-
-    @Test
+    // note: this is implemented with LogGroupIterable; detailed testing happens there
     public void testDescribeLogStreams() throws Exception
     {
         MockAWSLogs mock = new MockAWSLogs()
@@ -114,54 +82,6 @@ public class TestCloudWatchLogsUtil
 
         List<LogStream> streams = CloudWatchLogsUtil.describeLogStreams(client, "foo", null);
         assertLogStreamNames(streams, "argle", "bargle", "bazzle");
-
-        testLog.assertLogSize(0);
-    }
-
-
-    @Test
-    public void testDescribeLogStreamsWithPrefix() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
-                                 .withGroupAndStreams("bar");
-        AWSLogs client = mock.getInstance();
-
-        List<LogStream> streams = CloudWatchLogsUtil.describeLogStreams(client, "foo", "ba");
-        assertLogStreamNames(streams, "bargle", "bazzle");
-
-        testLog.assertLogSize(0);
-    }
-
-
-    @Test
-    public void testDescribeLogStreamsWithPagination() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
-                                 .withGroupAndStreams("bar")
-                                 .withPageSize(2);
-        AWSLogs client = mock.getInstance();
-
-        List<LogStream> streams = CloudWatchLogsUtil.describeLogStreams(client, "foo", "ba");
-        assertLogStreamNames(streams, "bargle", "bazzle");
-        mock.assertInvocationCount("describeLogStreams", 2);
-
-        testLog.assertLogSize(0);
-    }
-
-
-    @Test
-    public void testDescribeLogStreamsWithMissingGroup() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
-                                 .withGroupAndStreams("bar")
-                                 .withPageSize(2);
-        AWSLogs client = mock.getInstance();
-
-        List<LogStream> streams = CloudWatchLogsUtil.describeLogStreams(client, "fribble", "ba");
-        assertLogStreamNames(streams);
 
         testLog.assertLogSize(0);
     }
