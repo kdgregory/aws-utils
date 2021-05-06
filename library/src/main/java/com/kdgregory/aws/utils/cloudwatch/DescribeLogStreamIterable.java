@@ -42,7 +42,7 @@ import com.kdgregory.aws.utils.CommonUtils;
  *
  *  This class is not thread-safe.
  */
-public class LogStreamIterable
+public class DescribeLogStreamIterable
 implements Iterable<LogStream>
 {
     private final static int DEFAULT_RETRIES = 5;
@@ -70,7 +70,7 @@ implements Iterable<LogStream>
      *  @param  retryDelay  The base delay, in milliseconds, between retries. Each retry
      *                      will be double the length of the previous (resetting on success).
      */
-    public LogStreamIterable(AWSLogs client, String logGroup, String prefix, int maxRetries, long retryDelay)
+    public DescribeLogStreamIterable(AWSLogs client, String logGroup, String prefix, int maxRetries, long retryDelay)
     {
         this.client = client;
         this.groupName = logGroup;
@@ -88,7 +88,7 @@ implements Iterable<LogStream>
      *  @param  prefix      An optional prefix: only streams that start with this prefix
      *                      will be returned. May be null or empty to return all streams.
      */
-    public LogStreamIterable(AWSLogs client, String logGroupName, String prefix)
+    public DescribeLogStreamIterable(AWSLogs client, String logGroupName, String prefix)
     {
         this(client, logGroupName, prefix, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
     }
@@ -100,7 +100,7 @@ implements Iterable<LogStream>
      *  @param  client      The AWS client used to describe streams.
      *  @param  logGroup    The name of the log group whose streams you want to iterate.
      */
-    public LogStreamIterable(AWSLogs client, String logGroupName)
+    public DescribeLogStreamIterable(AWSLogs client, String logGroupName)
     {
         this(client, logGroupName, null);
     }

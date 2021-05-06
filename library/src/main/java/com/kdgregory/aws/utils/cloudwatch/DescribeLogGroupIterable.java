@@ -41,7 +41,7 @@ import com.kdgregory.aws.utils.CommonUtils;
  *
  *  This class is not thread-safe.
  */
-public class LogGroupIterable
+public class DescribeLogGroupIterable
 implements Iterable<LogGroup>
 {
     private final static int DEFAULT_RETRIES = 5;
@@ -67,7 +67,7 @@ implements Iterable<LogGroup>
      *  @param  retryDelay  The base delay, in milliseconds, between retries. Each retry
      *                      will be double the length of the previous (resetting on success).
      */
-    public LogGroupIterable(AWSLogs client, String prefix, int maxRetries, long retryDelay)
+    public DescribeLogGroupIterable(AWSLogs client, String prefix, int maxRetries, long retryDelay)
     {
         this.client = client;
         this.prefix = prefix;
@@ -83,7 +83,7 @@ implements Iterable<LogGroup>
      *  @param  prefix      An optional prefix: only groups that start with this prefix
      *                      will be returned. May be null or empty to return all groups.
      */
-    public LogGroupIterable(AWSLogs client, String prefix)
+    public DescribeLogGroupIterable(AWSLogs client, String prefix)
     {
         this(client, prefix, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
     }
@@ -94,7 +94,7 @@ implements Iterable<LogGroup>
      *
      *  @param  client      The AWS client used to describe groups.
      */
-    public LogGroupIterable(AWSLogs client)
+    public DescribeLogGroupIterable(AWSLogs client)
     {
         this(client, null);
     }

@@ -33,7 +33,7 @@ import com.kdgregory.aws.utils.testhelpers.Log4JCapturingAppender;
 import com.kdgregory.aws.utils.testhelpers.mocks.MockAWSLogs;
 
 
-public class TestLogGroupIterable
+public class TestDescribeLogStreamIterable
 {
     private Log4JCapturingAppender testLog;
 
@@ -53,71 +53,84 @@ public class TestLogGroupIterable
 //----------------------------------------------------------------------------
 
     @Test
-    public void testLogGroupIterableBasicOperation() throws Exception
+    public void testLogStreamIterableBasicOperation() throws Exception
     {
         MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo")
-                                 .withGroupAndStreams("bar")
-                                 .withGroupAndStreams("baz");
+                                 .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
+                                 .withGroupAndStreams("bar", "baz");
         AWSLogs client = mock.getInstance();
 
-        Set<String> groupNames = readLogGroupIterable(new LogGroupIterable(client));
+        Set<String> streamNames = readLogStreamIterable(new DescribeLogStreamIterable(client, "foo"));
 
-        assertEquals(CollectionUtil.asSet("foo", "bar", "baz"), groupNames);
-        assertEquals("describeLogGroups invocation count", 1, mock.getInvocationCount("describeLogGroups"));
+        assertEquals(CollectionUtil.asSet("argle", "bargle", "bazzle"), streamNames);
+        assertEquals("describeLogStreams invocation count", 1, mock.getInvocationCount("describeLogStreams"));
 
         testLog.assertLogSize(0);
     }
 
 
     @Test
-    public void testLogGroupIterableWithPrefix() throws Exception
+    public void testLogStreamIterableWithPrefix() throws Exception
     {
         MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo")
-                                 .withGroupAndStreams("bar")
-                                 .withGroupAndStreams("baz");
+                                 .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
+                                 .withGroupAndStreams("bar", "baz");
         AWSLogs client = mock.getInstance();
 
-        Set<String> groupNames = readLogGroupIterable(new LogGroupIterable(client, "ba"));
+        Set<String> streamNames = readLogStreamIterable(new DescribeLogStreamIterable(client, "foo", "ba"));
 
-        assertEquals(CollectionUtil.asSet("bar", "baz"), groupNames);
-        assertEquals("describeLogGroups invocation count", 1, mock.getInvocationCount("describeLogGroups"));
+        assertEquals(CollectionUtil.asSet("bargle", "bazzle"), streamNames);
+        assertEquals("describeLogStreams invocation count", 1, mock.getInvocationCount("describeLogStreams"));
 
         testLog.assertLogSize(0);
     }
 
 
     @Test
-    public void testLogGroupIterableWithPagination() throws Exception
+    public void testLogStreamIterableWithPagination() throws Exception
     {
         MockAWSLogs mock = new MockAWSLogs()
-                                 .withGroupAndStreams("foo")
-                                 .withGroupAndStreams("bar")
-                                 .withGroupAndStreams("baz")
+                                 .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
+                                 .withGroupAndStreams("bar", "baz")
                                  .withPageSize(2);
         AWSLogs client = mock.getInstance();
 
-        Set<String> groupNames = readLogGroupIterable(new LogGroupIterable(client));
+        Set<String> streamNames = readLogStreamIterable(new DescribeLogStreamIterable(client, "foo"));
 
-        assertEquals(CollectionUtil.asSet("foo", "bar", "baz"), groupNames);
-        assertEquals("describeLogGroups invocation count", 2, mock.getInvocationCount("describeLogGroups"));
+        assertEquals(CollectionUtil.asSet("argle", "bargle", "bazzle"), streamNames);
+        assertEquals("describeLogStreams invocation count", 2, mock.getInvocationCount("describeLogStreams"));
 
         testLog.assertLogSize(0);
     }
 
 
     @Test
-    public void testLogGroupIterableWithThrottling() throws Exception
+    public void testLogStreamIterableWithMissingGroup() throws Exception
+    {
+        MockAWSLogs mock = new MockAWSLogs()
+                                 .withGroupAndStreams("bar", "baz");
+        AWSLogs client = mock.getInstance();
+
+        Set<String> streamNames = readLogStreamIterable(new DescribeLogStreamIterable(client, "foo"));
+
+        assertEquals("number of names returned",            0,  streamNames.size());
+        assertEquals("describeLogStreams invocation count", 1,  mock.getInvocationCount("describeLogStreams"));
+
+        testLog.assertLogSize(0);
+    }
+
+
+    @Test
+    public void testLogStreamIterableWithThrottling() throws Exception
     {
         // note: we test throttling and recovery by setting a page size smaller than the
         //       number of known groups
         MockAWSLogs mock = new MockAWSLogs()
         {
             @Override
-            public DescribeLogGroupsResult describeLogGroups(DescribeLogGroupsRequest request)
+            public DescribeLogStreamsResult describeLogStreams(DescribeLogStreamsRequest request)
             {
-                if (getInvocationCount("describeLogGroups") % 2 == 1)
+                if (getInvocationCount("describeLogStreams") % 2 == 1)
                 {
                     // exception contents determined by experimentation
                     AWSLogsException ex = new AWSLogsException("message doesn't matter");
@@ -125,36 +138,34 @@ public class TestLogGroupIterable
                     throw ex;
                 }
                 else
-                    return super.describeLogGroups(request);
+                    return super.describeLogStreams(request);
             }
         }
-        .withGroupAndStreams("foo")
-        .withGroupAndStreams("bar")
-        .withGroupAndStreams("baz")
+        .withGroupAndStreams("foo", "argle", "bargle", "bazzle")
         .withPageSize(2);
         AWSLogs client = mock.getInstance();
 
         long start = System.currentTimeMillis();
-        Set<String> groupNames = readLogGroupIterable(new LogGroupIterable(client));
+        Set<String> streamNames = readLogStreamIterable(new DescribeLogStreamIterable(client, "foo"));
         long elapsed = System.currentTimeMillis() - start;
 
-        assertEquals(CollectionUtil.asSet("foo", "bar", "baz"), groupNames);
+        assertEquals(CollectionUtil.asSet("argle", "bargle", "bazzle"), streamNames);
         assertInRange("execution time", 175, 225, elapsed);
-        assertEquals("describeLogGroups invocation count", 4, mock.getInvocationCount("describeLogGroups"));
+        assertEquals("describeLogGroups invocation count", 4, mock.getInvocationCount("describeLogStreams"));
 
         testLog.assertLogSize(2);
-        testLog.assertLogEntry(0, Level.DEBUG, "describeLogGroups.*throttled.*delay.*100 ms");
-        testLog.assertLogEntry(1, Level.DEBUG, "describeLogGroups.*throttled.*delay.*100 ms");
+        testLog.assertLogEntry(0, Level.DEBUG, "describeLogStreams.*throttled.*delay.*100 ms");
+        testLog.assertLogEntry(1, Level.DEBUG, "describeLogStreams.*throttled.*delay.*100 ms");
     }
 
 
     @Test
-    public void testLogGroupIterableWithThrottlingTimeout() throws Exception
+    public void testLogStreamIterableWithThrottlingTimeout() throws Exception
     {
         MockAWSLogs mock = new MockAWSLogs()
         {
             @Override
-            public DescribeLogGroupsResult describeLogGroups(DescribeLogGroupsRequest request)
+            public DescribeLogStreamsResult describeLogStreams(DescribeLogStreamsRequest request)
             {
                 // exception contents determined by experimentation
                 AWSLogsException ex = new AWSLogsException("message doesn't matter");
@@ -167,27 +178,26 @@ public class TestLogGroupIterable
         long start = System.currentTimeMillis();
         try
         {
-            // note: to avoid long-running tests, we explicitly set delay and max retries to small numbers
-            readLogGroupIterable(new LogGroupIterable(client, null, 3, 50L));
+            readLogStreamIterable(new DescribeLogStreamIterable(client, "foo", null, 3, 50L));
             fail("should have thrown");
         }
         catch (AWSLogsException ex)
         {
             long elapsed = System.currentTimeMillis() - start;
             assertInRange("execution time", 300, 400, elapsed);
-            assertEquals("describeLogGroups invocation count", 3, mock.getInvocationCount("describeLogGroups"));
+            assertEquals("describeLogGroups invocation count", 3, mock.getInvocationCount("describeLogStreams"));
             assertEquals("exception error code", "ThrottlingException", ex.getErrorCode());
         }
 
         testLog.assertLogSize(3);
-        testLog.assertLogEntry(0, Level.DEBUG, "describeLogGroups.*throttled.*delay.*50 ms");
-        testLog.assertLogEntry(1, Level.DEBUG, "describeLogGroups.*throttled.*delay.*100 ms");
-        testLog.assertLogEntry(2, Level.DEBUG, "describeLogGroups.*throttled.*delay.*200 ms");
+        testLog.assertLogEntry(0, Level.DEBUG, "describeLogStreams.*throttled.*delay.*50 ms");
+        testLog.assertLogEntry(1, Level.DEBUG, "describeLogStreams.*throttled.*delay.*100 ms");
+        testLog.assertLogEntry(2, Level.DEBUG, "describeLogStreams.*throttled.*delay.*200 ms");
     }
 
 
     @Test
-    public void testLogGroupIterableWithPropatedLogsException() throws Exception
+    public void testLogStreamIterableWithPropatedLogsException() throws Exception
     {
         // we don't set the error code, which (1) should cause exception to propagate,
         // and (2) verifies that we do a null-safe check internally
@@ -196,7 +206,7 @@ public class TestLogGroupIterable
         MockAWSLogs mock = new MockAWSLogs()
         {
             @Override
-            public DescribeLogGroupsResult describeLogGroups(DescribeLogGroupsRequest request)
+            public DescribeLogStreamsResult describeLogStreams(DescribeLogStreamsRequest request)
             {
                 throw thrownException;
             }
@@ -205,28 +215,29 @@ public class TestLogGroupIterable
 
         try
         {
-            readLogGroupIterable(new LogGroupIterable(client));
+            readLogStreamIterable(new DescribeLogStreamIterable(client, "foo", null, 3, 50L));
             fail("should have thrown");
         }
         catch (AWSLogsException ex)
         {
-            assertEquals("describeLogGroups invocation count", 1, mock.getInvocationCount("describeLogGroups"));
+            assertEquals("describeLogGroups invocation count", 1, mock.getInvocationCount("describeLogStreams"));
             assertSame("exception was propagated", thrownException, ex);
         }
 
+        // caller is responsible for logging, assuming they catch the exception
         testLog.assertLogSize(0);
     }
 
 
     @Test
-    public void testLogGroupIterableWithRuntimeException() throws Exception
+    public void testLogStreamIterableWithRuntimeException() throws Exception
     {
         final RuntimeException thrownException = new RuntimeException("nope");
 
         MockAWSLogs mock = new MockAWSLogs()
         {
             @Override
-            public DescribeLogGroupsResult describeLogGroups(DescribeLogGroupsRequest request)
+            public DescribeLogStreamsResult describeLogStreams(DescribeLogStreamsRequest request)
             {
                 throw thrownException;
             }
@@ -235,15 +246,16 @@ public class TestLogGroupIterable
 
         try
         {
-            readLogGroupIterable(new LogGroupIterable(client));
+            readLogStreamIterable(new DescribeLogStreamIterable(client, "foo", null, 3, 50L));
             fail("should have thrown");
         }
         catch (Exception ex)
         {
-            assertEquals("describeLogGroups invocation count", 1, mock.getInvocationCount("describeLogGroups"));
+            assertEquals("describeLogGroups invocation count", 1, mock.getInvocationCount("describeLogStreams"));
             assertSame("exception was propagated", thrownException, ex);
         }
 
+        // caller is responsible for logging, assuming they catch the exception
         testLog.assertLogSize(0);
     }
 
@@ -252,15 +264,15 @@ public class TestLogGroupIterable
 //----------------------------------------------------------------------------
 
     /**
-     *  Reads iterates a LogGroupIterable and collects the names of the groups
+     *  Reads iterates a LogStreamIterable and collects the names of the streams
      *  it returns.
      */
-    private static Set<String> readLogGroupIterable(LogGroupIterable itx)
+    private static Set<String> readLogStreamIterable(DescribeLogStreamIterable itx)
     {
         Set<String> result = new HashSet<>();
-        for (LogGroup group : itx)
+        for (LogStream group : itx)
         {
-            result.add(group.getLogGroupName());
+            result.add(group.getLogStreamName());
         }
         return result;
     }

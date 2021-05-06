@@ -232,7 +232,7 @@ public class CloudWatchLogsUtil
     public static List<LogGroup> describeLogGroups(AWSLogs client, String prefix)
     {
         List<LogGroup> result = new ArrayList<LogGroup>();
-        for (LogGroup group : new LogGroupIterable(client, prefix))
+        for (LogGroup group : new DescribeLogGroupIterable(client, prefix))
         {
             result.add(group);
         }
@@ -251,7 +251,7 @@ public class CloudWatchLogsUtil
      */
     public static LogGroup describeLogGroup(AWSLogs client, String groupName)
     {
-        for (LogGroup group : new LogGroupIterable(client, groupName))
+        for (LogGroup group : new DescribeLogGroupIterable(client, groupName))
         {
             if (group.getLogGroupName().equals(groupName))
                 return group;
@@ -275,7 +275,7 @@ public class CloudWatchLogsUtil
     public static List<LogStream> describeLogStreams(AWSLogs client, String groupName, String prefix)
     {
         List<LogStream> result = new ArrayList<LogStream>();
-        for (LogStream stream : new LogStreamIterable(client, groupName, prefix))
+        for (LogStream stream : new DescribeLogStreamIterable(client, groupName, prefix))
         {
             result.add(stream);
         }
@@ -295,7 +295,7 @@ public class CloudWatchLogsUtil
      */
     public static LogStream describeLogStream(AWSLogs client, String groupName, String streamName)
     {
-        for (LogStream stream : new LogStreamIterable(client, groupName, streamName))
+        for (LogStream stream : new DescribeLogStreamIterable(client, groupName, streamName))
         {
             if (stream.getLogStreamName().equals(streamName))
                 return stream;
