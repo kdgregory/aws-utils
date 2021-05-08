@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
@@ -36,31 +37,31 @@ public class CloudWatchLogsReader
     private Log logger = LogFactory.getLog(getClass());
 
     private AWSLogs client;
-    private List<StreamIdentifier> streamIdentifiers = new ArrayList<StreamIdentifier>();
+    private List<Iterator<OutputLogEvent>> iterators = new ArrayList<>();
 
     private Long startTime;
     private Long endTime;
 
 
     /**
-     *  Creates an instance that reads from one or more named streams, which may
-     *  belong to different groups. You should rarely want to do this, as there
-     *  is no way to differentiate messages from different groups, but it may be
-     *  useful to correlate messages logged from multiple sources.
+     *  Base constructor.
      *
      *  @param  client          The service client. AWS best practice is to share a single
      *                          client instance between all consumers.
-     *  @param  logStreams      The streams to read.
+     *  @param  logGroupName    The source log group.
+     *  @param  logStreamNames  The source log streams.
      */
-    public CloudWatchLogsReader(AWSLogs client, StreamIdentifier... logStreams)
+    public CloudWatchLogsReader(AWSLogs client, String logGroupName, List<String> logStreamNames)
     {
-        this.client = client;
-        this.streamIdentifiers.addAll(Arrays.asList(logStreams));
+        for (String streamName : logStreamNames)
+        {
+            iterators.add(new LogStreamIterable(client, logGroupName, streamName).iterator());
+        }
     }
 
 
     /**
-     *  Creates an instance that reads from one or more named streams in a single group.
+     *  Convenience constructor, for an explicitly named list of streams.
      *
      *  @param  client          The service client. AWS best practice is to share a single
      *                          client instance between all consumers.
@@ -69,26 +70,9 @@ public class CloudWatchLogsReader
      */
     public CloudWatchLogsReader(AWSLogs client, String logGroupName, String... logStreamNames)
     {
-        this(client, StreamIdentifier.fromStreamNames(logGroupName, logStreamNames));
+        this(client, logGroupName, Arrays.asList(logStreamNames));
     }
-
-
-    /**
-     *  Creates an instance that reads from one or more named streams in a single group,
-     *  where the stream names are extracted from stream descriptions. This is intended
-     *  for use with the output of {@link CloudWatchLogsUtil#describeStreams}.
-     *
-     *  @param  client          The service client. AWS best practice is to share a single
-     *                          client instance between all consumers.
-     *  @param  logGroupName    The source log group.
-     *  @param  logStreams      The source log streams.
-     */
-    public CloudWatchLogsReader(AWSLogs client, String logGroupName, List<LogStream> logStreams)
-    {
-
-        this(client, StreamIdentifier.fromDescriptions(logGroupName, logStreams));
-    }
-
+    
 //----------------------------------------------------------------------------
 //  Configuration API
 //----------------------------------------------------------------------------
@@ -115,72 +99,11 @@ public class CloudWatchLogsReader
 //----------------------------------------------------------------------------
 
     /**
-     *  Holds a stream name, along with its group name. This is used internally,
-     *  and is exposed so that callers can read from independent streams.
-     */
-    public static class StreamIdentifier
-    {
-        private String groupName;
-        private String streamName;
-
-        public StreamIdentifier(String logGroupName, String logStreamName)
-        {
-            this.groupName = logGroupName;
-            this.streamName = logStreamName;
-        }
-
-        // since this class is exposed to the public, it's immutable with getters
-
-        public String getGroupName()
-        {
-            return groupName;
-        }
-
-        public String getStreamName()
-        {
-            return streamName;
-        }
-
-        @Override
-        public String toString()
-        {
-            return groupName + " / " + streamName;
-        }
-
-        // the following are used by the constructors
-
-        public static StreamIdentifier[] fromStreamNames(String logGroupName, String... logStreamNames)
-        {
-            StreamIdentifier[] result = new StreamIdentifier[logStreamNames.length];
-            for (int ii = 0 ; ii < logStreamNames.length ; ii++)
-            {
-                result[ii] = new StreamIdentifier(logGroupName, logStreamNames[ii]);
-            }
-            return result;
-        }
-
-        public static StreamIdentifier[] fromDescriptions(String logGroupName, List<LogStream> logStreams)
-        {
-            StreamIdentifier[] result = new StreamIdentifier[logStreams.size()];
-            int ii = 0;
-            for (LogStream stream : logStreams)
-            {
-                result[ii++] = new StreamIdentifier(logGroupName, stream.getLogStreamName());
-            }
-            return result;
-        }
-    }
-
-
-    /**
-     *  Retrieves messages from the streams. All messages are combined into a
-     *  single list, and are ordered with the earliest message first.
+     *  Retrieves a single batch of messages from the streams. All messages are
+     *  combined into a single list, and sorted ascending by timestamp.
      *  <p>
-     *  This is a "best effort" read: it starts reading at the configured start
-     *  point, and continues to request records until the sequence token does
-     *  not change between requests. This approach may miss records due to
-     *  eventual consistency; it will definitely omit records that were written
-     *  with older timestamps than those that are already read.
+     *  This is a "best effort" read: it reads until each stream iterator is
+     *  empty. If messages are added after the read, they won't be retrieved.
      *  <p>
      *  If the log group or log stream does not exist, it is ignored and the
      *  result will be an empty list.
@@ -189,9 +112,12 @@ public class CloudWatchLogsReader
     {
         List<OutputLogEvent> result = new ArrayList<OutputLogEvent>();
 
-        for (StreamIdentifier streamIdentifier : streamIdentifiers)
+        for (Iterator<OutputLogEvent> itx : iterators)
         {
-            result.addAll(readFromStream(streamIdentifier));
+            while (itx.hasNext())
+            {
+                result.add(itx.next());
+            }
         }
 
         Collections.sort(result, new OutputLogEventComparator());
@@ -229,47 +155,6 @@ public class CloudWatchLogsReader
 //----------------------------------------------------------------------------
 //  Internals
 //----------------------------------------------------------------------------
-
-    /**
-     *  Reads messages from a single stream. Returns an empty list if the stream
-     *  does not exist.
-     */
-    private List<OutputLogEvent> readFromStream(StreamIdentifier streamIdentifier)
-    {
-        GetLogEventsRequest request = new GetLogEventsRequest()
-                                      .withLogGroupName(streamIdentifier.groupName)
-                                      .withLogStreamName(streamIdentifier.streamName)
-                                      .withStartFromHead(Boolean.TRUE);
-        if (startTime != null)
-            request.setStartTime(startTime);
-
-        if (endTime != null)
-            request.setEndTime(endTime);
-
-        List<OutputLogEvent> result = new ArrayList<OutputLogEvent>();
-        String prevToken = "";
-        String nextToken = "";
-        do
-        {
-            try
-            {
-                GetLogEventsResult response = client.getLogEvents(request);
-                result.addAll(response.getEvents());
-                prevToken = nextToken;
-                nextToken = response.getNextForwardToken();
-                request.setNextToken(nextToken);
-            }
-            catch (ResourceNotFoundException ex)
-            {
-                logger.warn("retrieve from missing stream: " + streamIdentifier);
-                return result;
-            }
-        }
-        while (! prevToken.equals(nextToken));
-
-        return result;
-    }
-
 
     /**
      *  A comparator to sort log events by timestamp, used to combine events from
