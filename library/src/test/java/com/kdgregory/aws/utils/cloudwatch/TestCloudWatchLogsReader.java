@@ -175,8 +175,8 @@ public class TestCloudWatchLogsReader
         assertEquals("number of events",            0,  events.size());
         assertEquals("number of events",            0,  events.size());
 
-        // we have to explicitly enable logging of a missing group/stream
-        logCapture.assertLogSize(0);
+        logCapture.assertLogSize(1);
+        logCapture.assertLogEntry(0, Level.WARN, "retrieve from missing stream.*zippy.*bar");
     }
 
 
@@ -191,50 +191,8 @@ public class TestCloudWatchLogsReader
         mock.assertInvocationCount("getLogEvents",  1);
         assertEquals("number of events",            0,  events.size());
 
-        // we have to explicitly enable logging of a missing group/stream
-        logCapture.assertLogSize(0);
-    }
-
-
-    @Test
-    public void testMissingLogStreamLogging() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs("foo", "bar");
-
-        CloudWatchLogsReader reader = new CloudWatchLogsReader(mock.getInstance(), "foo", "bargle")
-                                      .withMissingStreamLogging(true);
-
-        List<OutputLogEvent> events = reader.retrieve();
-
-        mock.assertInvocationCount("getLogEvents",  1);
-        assertEquals("number of events",            0,  events.size());
-        assertEquals("number of events",            0,  events.size());
-
-        // we have to explicitly enable logging of a missing group/stream
         logCapture.assertLogSize(1);
         logCapture.assertLogEntry(0, Level.WARN, "retrieve from missing stream.*foo.*bargle");
-    }
-
-
-    @Test
-    public void testBatchLogging() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs("foo", "bar")
-                                 .withMessage(10, "first")
-                                 .withMessage(20, "second");
-
-        CloudWatchLogsReader reader = new CloudWatchLogsReader(mock.getInstance(), "foo", "bar")
-                                      .withRetrieveEntryLogging(true)
-                                      .withRetrieveExitLogging(true);
-
-        List<OutputLogEvent> events = reader.retrieve();
-
-        mock.assertInvocationCount("getLogEvents",  2);
-        assertEquals("number of events",            2,  events.size());
-
-        logCapture.assertLogSize(2);
-        logCapture.assertLogEntry(0, Level.DEBUG, "starting retrieve.*foo.*bar");
-        logCapture.assertLogEntry(1, Level.DEBUG, "retrieved 2 events from.*foo.*bar");
     }
 
 //----------------------------------------------------------------------------

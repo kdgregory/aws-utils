@@ -41,10 +41,6 @@ public class CloudWatchLogsReader
     private Long startTime;
     private Long endTime;
 
-    private boolean logMissingStream;
-    private boolean logRetrieveEntry;
-    private boolean logRetrieveExit;
-
 
     /**
      *  Creates an instance that reads from one or more named streams, which may
@@ -111,43 +107,6 @@ public class CloudWatchLogsReader
     {
         this.startTime = start;
         this.endTime = finish;
-        return this;
-    }
-
-
-    /**
-     *  Controls whether {@link #retrieve} logs a warning message if the stream
-     *  is missing. Default is false, allowing speculative reads without spurious
-     *  log messages.
-     */
-    public CloudWatchLogsReader withMissingStreamLogging(boolean value)
-    {
-        logMissingStream = value;
-        return this;
-    }
-
-
-    /**
-     *  Controls whether {@link #retrieve} logs a debug message indicating that
-     *  it's about to read a stream. Default is false; in general there's no
-     *  reason that you would enable unless you want to verify that you are,
-     *  in fact, invoking the reader.
-     */
-    public CloudWatchLogsReader withRetrieveEntryLogging(boolean value)
-    {
-        logRetrieveEntry = value;
-        return this;
-    }
-
-
-    /**
-     *  Controls whether {@link #retrieve} logs a debug message indicating that
-     *  it's finished reading a stream, with the number of messages read. Default
-     *  is false.
-     */
-    public CloudWatchLogsReader withRetrieveExitLogging(boolean value)
-    {
-        logRetrieveExit = value;
         return this;
     }
 
@@ -277,9 +236,6 @@ public class CloudWatchLogsReader
      */
     private List<OutputLogEvent> readFromStream(StreamIdentifier streamIdentifier)
     {
-        if (logRetrieveEntry && logger.isDebugEnabled())
-            logger.debug("starting retrieve from " + streamIdentifier);
-
         GetLogEventsRequest request = new GetLogEventsRequest()
                                       .withLogGroupName(streamIdentifier.groupName)
                                       .withLogStreamName(streamIdentifier.streamName)
@@ -305,15 +261,11 @@ public class CloudWatchLogsReader
             }
             catch (ResourceNotFoundException ex)
             {
-                if (logMissingStream && logger.isWarnEnabled())
-                    logger.warn("retrieve from missing stream: " + streamIdentifier);
+                logger.warn("retrieve from missing stream: " + streamIdentifier);
                 return result;
             }
         }
         while (! prevToken.equals(nextToken));
-
-        if (logRetrieveExit && logger.isDebugEnabled())
-            logger.debug("retrieved " + result.size() +  " events from " + streamIdentifier);
 
         return result;
     }
