@@ -75,27 +75,27 @@ public class TestCloudWatchLogsReader
     }
 
 
-    @Test
-    public void testAlternateConstructor() throws Exception
-    {
-        MockAWSLogs mock = new MockAWSLogs("foo", "bar")
-                                 .withMessage(10, "first")
-                                 .withMessage(20, "second")
-                                 .withMessage(30, "third");
-
-        AWSLogs client = mock.getInstance();
-        List<LogStream> streams = CloudWatchLogsUtil.describeLogStreams(client, "foo", "ba");
-
-        CloudWatchLogsReader reader = new CloudWatchLogsReader(client, "foo", streams);
-        List<OutputLogEvent> events = reader.retrieve();
-
-        mock.assertInvocationCount("getLogEvents",  2);
-        assertEquals("number of events",            3,  events.size());
-
-        assertEvent(events, 0, 10, "first");
-        assertEvent(events, 1, 20, "second");
-        assertEvent(events, 2, 30, "third");
-    }
+//    @Test
+//    public void testAlternateConstructor() throws Exception
+//    {
+//        MockAWSLogs mock = new MockAWSLogs("foo", "bar")
+//                                 .withMessage(10, "first")
+//                                 .withMessage(20, "second")
+//                                 .withMessage(30, "third");
+//
+//        AWSLogs client = mock.getInstance();
+//        List<LogStream> streams = CloudWatchLogsUtil.describeLogStreams(client, "foo", "ba");
+//
+//        CloudWatchLogsReader reader = new CloudWatchLogsReader(client, "foo", streams);
+//        List<OutputLogEvent> events = reader.retrieve();
+//
+//        mock.assertInvocationCount("getLogEvents",  2);
+//        assertEquals("number of events",            3,  events.size());
+//
+//        assertEvent(events, 0, 10, "first");
+//        assertEvent(events, 1, 20, "second");
+//        assertEvent(events, 2, 30, "third");
+//    }
 
 
     @Test
