@@ -16,6 +16,7 @@ package com.kdgregory.aws.utils.testhelpers.mocks;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -25,6 +26,7 @@ import net.sf.kdgcommons.lang.StringUtil;
 
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.*;
+import com.sun.webkit.PageCache;
 
 /**
  *  A mock client that knows about a predefined set of groups and streams and
@@ -37,14 +39,16 @@ extends AbstractMock<AWSLogs>
     // protected variables may be changed by subclasses but are not inspected by tests;
     // private variables are for internal state
 
+    private int pageSize = Integer.MAX_VALUE / 2; // same size for all APIs; default is effectively infinite
+
     protected String uploadSequenceToken = UUID.randomUUID().toString();
 
     public List<InputLogEvent> allMessages = new ArrayList<InputLogEvent>();
 
     private Map<String,TreeSet<String>> groupsAndStreams = new TreeMap<String,TreeSet<String>>();
-    private TreeMap<Long,String> messages = new TreeMap<Long,String>();
-    private int pageSize = Integer.MAX_VALUE / 2; // effectively infinite
 
+    // TODO - change to a map keyed by group and stream
+    private List<OutputLogEvent> retrievableEvents = new ArrayList<>();
 
     /**
      *  Basic constructor: must call one or more of the configuration methods
@@ -90,7 +94,8 @@ extends AbstractMock<AWSLogs>
      */
     public MockAWSLogs withMessage(long timestamp, String message)
     {
-        messages.put(Long.valueOf(timestamp), message);
+        OutputLogEvent event = new OutputLogEvent().withTimestamp(timestamp).withMessage(message);
+        retrievableEvents.add(event);
         return this;
     }
 
@@ -281,33 +286,70 @@ extends AbstractMock<AWSLogs>
     {
         verifyStream(request.getLogGroupName(), request.getLogStreamName());
 
-        long startTimestamp = (request.getStartTime() == null)
-                            ? 0
+        boolean isForward = (request.isStartFromHead() != null) && request.isStartFromHead().booleanValue();
+
+        long minTimestamp   = (request.getStartTime() == null)
+                            ? -1
                             : request.getStartTime().longValue();
-        long endTimestamp   = (request.getEndTime() == null)
+        long maxTimestamp   = (request.getEndTime() == null)
                             ? Long.MAX_VALUE
                             : request.getEndTime().longValue();
+        long startTimestamp = (request.getNextToken() != null)
+                            ? Long.parseLong(request.getNextToken())
+                            : isForward ? minTimestamp : maxTimestamp;
+        long curTimestamp = startTimestamp;
 
-        List<OutputLogEvent> events = new ArrayList<OutputLogEvent>();
-        for (Map.Entry<Long,String> entry : messages.entrySet())
+        ListIterator<OutputLogEvent> itx = retrievableEvents.listIterator();
+        while (itx.hasNext())
         {
-            Long timestamp = entry.getKey();
-            String message = entry.getValue();
-            if ((startTimestamp <= timestamp.longValue()) && (timestamp.longValue() <= endTimestamp))
+            curTimestamp = itx.next().getTimestamp().longValue();
+            if (curTimestamp >= startTimestamp)
             {
-                events.add(new OutputLogEvent().withTimestamp(timestamp).withMessage(message));
+                // for forward iteration, we've already eaten the element we want to start with
+                // for backward iteration we're leaving an invalid element in the iterator
+                itx.previous();
+                break;
             }
         }
 
-        String nextToken = request.getNextToken();
-        int startOffset = (! StringUtil.isBlank(nextToken))
-                        ? Integer.parseInt(nextToken)
-                        : 0;
-        int endOffset = Math.min(events.size(), startOffset + pageSize);
+        List<OutputLogEvent> events = new ArrayList<OutputLogEvent>();
+        if (isForward)
+        {
+            for (int count = pageSize ; (count > 0) && itx.hasNext() ; count--)
+            {
+                OutputLogEvent event = itx.next();
+                events.add(event);
+                curTimestamp = event.getTimestamp().longValue();
+            }
+        }
+        else
+        {
+            for (int count = pageSize ; (count > 0) && itx.hasPrevious() ; count--)
+            {
+                OutputLogEvent event = itx.previous();
+                events.add(event);
+                curTimestamp = event.getTimestamp().longValue();
+            }
+        }
+
+        String nextForwardToken = String.valueOf(maxTimestamp);
+        if (itx.hasNext())
+        {
+            nextForwardToken = String.valueOf(itx.next().getTimestamp());
+            // move iterator back to "pre-if" state so we can check backward token
+            itx.previous();
+        }
+
+        String nextBackwardToken = String.valueOf(minTimestamp);
+        if (itx.hasPrevious())
+        {
+            nextBackwardToken = String.valueOf(itx.previous().getTimestamp());
+        }
 
         return new GetLogEventsResult()
-               .withEvents(events.subList(startOffset, endOffset))
-               .withNextForwardToken(String.valueOf(endOffset));
+               .withEvents(events)
+               .withNextForwardToken(nextForwardToken)
+               .withNextBackwardToken(nextBackwardToken);
     }
 
 
