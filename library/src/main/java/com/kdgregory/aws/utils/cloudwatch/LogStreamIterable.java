@@ -89,8 +89,23 @@ implements Iterable<OutputLogEvent>
 
 
     /**
-     *  Convenience constructor: forward or backward iteration from beginning/end of stream,
+     *  Convenience constructor: forward or backward iteration from a given point,
      *  with default retry configuration.
+     *
+     *  @param  client      The AWS client used to perform retrieves.
+     *  @param  groupName   The name of a log group.
+     *  @param  streamName  The name of a log stream within that group.
+     *  @param  startingAt  The timestamp to start iterating from.
+     */
+    public LogStreamIterable(AWSLogs client, String groupName, String streamName, boolean isForward, Date startingAt)
+    {
+        this(client, groupName, streamName, isForward, startingAt, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
+    }
+
+
+    /**
+     *  Convenience constructor: forward or backward iteration from beginning/end
+     *  of stream, with default retry configuration.
      *
      *  @param  client      The AWS client used to perform retrieves.
      *  @param  groupName   The name of a log group.
@@ -102,21 +117,6 @@ implements Iterable<OutputLogEvent>
     public LogStreamIterable(AWSLogs client, String groupName, String streamName, boolean isForward)
     {
         this(client, groupName, streamName, isForward, null, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
-    }
-
-
-    /**
-     *  Convenience constructor: forward iteration from a given point, with
-     *  default retry configuration.
-     *
-     *  @param  client      The AWS client used to perform retrieves.
-     *  @param  groupName   The name of a log group.
-     *  @param  streamName  The name of a log stream within that group.
-     *  @param  startingAt  The timestamp to start iterating from.
-     */
-    public LogStreamIterable(AWSLogs client, String groupName, String streamName, Date startingAt)
-    {
-        this(client, groupName, streamName, true, startingAt, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
     }
 
 
@@ -165,6 +165,7 @@ implements Iterable<OutputLogEvent>
 
             if ((startingAt != null) && ! isForward)
             {
+                // TODO - is this really how it works?
                 request.setEndTime(startingAt.getTime());
             }
         }

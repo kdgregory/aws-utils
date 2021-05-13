@@ -108,7 +108,7 @@ public class TestLogStreamIterable
                            .withMessage(20, "second")
                            .withMessage(30, "third");
 
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", new Date(20));
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", true, new Date(20));
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         int index = 0;
@@ -143,6 +143,58 @@ public class TestLogStreamIterable
 
         int index = 0;
         assertEvent(index++, itx.next(), 30, "third");
+        assertEvent(index++, itx.next(), 20, "second");
+        assertEvent(index++, itx.next(), 10, "first");
+
+        assertFalse("at end of iterator", itx.hasNext());
+
+        // after finishing the first batch of events, we'll try again
+        mock.assertInvocationCount("getLogEvents",  2);
+
+        // nothing should be logged in normal operation
+        logCapture.assertLogSize(0);
+    }
+
+
+    @Test
+    public void testBackwardOperationPaginated() throws Exception
+    {
+        MockAWSLogs mock = new MockAWSLogs("foo", "bar")
+                           .withMessage(10, "first")
+                           .withMessage(20, "second")
+                           .withMessage(30, "third")
+                           .withPageSize(2);
+
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", false);
+        Iterator<OutputLogEvent> itx = iterable.iterator();
+
+        int index = 0;
+        assertEvent(index++, itx.next(), 30, "third");
+        assertEvent(index++, itx.next(), 20, "second");
+        assertEvent(index++, itx.next(), 10, "first");
+
+        assertFalse("at end of iterator", itx.hasNext());
+
+        // after finishing the first batch of events, we'll try again
+        mock.assertInvocationCount("getLogEvents",  3);
+
+        // nothing should be logged in normal operation
+        logCapture.assertLogSize(0);
+    }
+
+
+    @Test
+    public void testBackwardOperationStartingAt() throws Exception
+    {
+        MockAWSLogs mock = new MockAWSLogs("foo", "bar")
+                           .withMessage(10, "first")
+                           .withMessage(20, "second")
+                           .withMessage(30, "third");
+
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", false, new Date(20));
+        Iterator<OutputLogEvent> itx = iterable.iterator();
+
+        int index = 0;
         assertEvent(index++, itx.next(), 20, "second");
         assertEvent(index++, itx.next(), 10, "first");
 
