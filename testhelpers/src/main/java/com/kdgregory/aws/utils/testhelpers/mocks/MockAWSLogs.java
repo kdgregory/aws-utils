@@ -15,6 +15,8 @@
 package com.kdgregory.aws.utils.testhelpers.mocks;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -37,14 +39,15 @@ extends AbstractMock<AWSLogs>
     // protected variables may be changed by subclasses but are not inspected by tests;
     // private variables are for internal state
 
+    private int pageSize = Integer.MAX_VALUE / 2; // same size for all APIs; default is effectively infinite
+
     protected String uploadSequenceToken = UUID.randomUUID().toString();
 
     public List<InputLogEvent> allMessages = new ArrayList<InputLogEvent>();
 
     private Map<String,TreeSet<String>> groupsAndStreams = new TreeMap<String,TreeSet<String>>();
-    private TreeMap<Long,String> messages = new TreeMap<Long,String>();
-    private int pageSize = Integer.MAX_VALUE / 2; // effectively infinite
 
+    private ArrayList<OutputLogEvent> retrievableEvents = new ArrayList<>();
 
     /**
      *  Basic constructor: must call one or more of the configuration methods
@@ -90,7 +93,8 @@ extends AbstractMock<AWSLogs>
      */
     public MockAWSLogs withMessage(long timestamp, String message)
     {
-        messages.put(Long.valueOf(timestamp), message);
+        OutputLogEvent event = new OutputLogEvent().withTimestamp(timestamp).withMessage(message);
+        retrievableEvents.add(event);
         return this;
     }
 
@@ -152,6 +156,12 @@ extends AbstractMock<AWSLogs>
         verifyGroup(groupName);
         if (! groupsAndStreams.get(groupName).contains(streamName))
             throw new ResourceNotFoundException("missing log stream: " + streamName);
+    }
+
+
+    protected long retrievedEventTimestamp(int index)
+    {
+        return retrievableEvents.get(index).getTimestamp().longValue();
     }
 
 //----------------------------------------------------------------------------
@@ -281,33 +291,63 @@ extends AbstractMock<AWSLogs>
     {
         verifyStream(request.getLogGroupName(), request.getLogStreamName());
 
-        long startTimestamp = (request.getStartTime() == null)
-                            ? 0
+        boolean isForward = (request.isStartFromHead() != null) && request.isStartFromHead().booleanValue();
+
+        long minTimestamp   = (request.getStartTime() == null)
+                            ? -1
                             : request.getStartTime().longValue();
-        long endTimestamp   = (request.getEndTime() == null)
+        long maxTimestamp   = (request.getEndTime() == null)
                             ? Long.MAX_VALUE
                             : request.getEndTime().longValue();
 
-        List<OutputLogEvent> events = new ArrayList<OutputLogEvent>();
-        for (Map.Entry<Long,String> entry : messages.entrySet())
+        int index = 0;
+        if (request.getNextToken() != null)
         {
-            Long timestamp = entry.getKey();
-            String message = entry.getValue();
-            if ((startTimestamp <= timestamp.longValue()) && (timestamp.longValue() <= endTimestamp))
+            index = Integer.parseInt(request.getNextToken());
+        }
+        else if (isForward)
+        {
+            while ((index < retrievableEvents.size()) && (retrievedEventTimestamp(index) < minTimestamp))
+                index++;
+        }
+        else
+        {
+            index = retrievableEvents.size() - 1;
+            while ((index > 0) && (retrievedEventTimestamp(index) > maxTimestamp))
+                index--;
+        }
+
+        // TODO - check min/max timestamp
+        List<OutputLogEvent> events = new ArrayList<OutputLogEvent>();
+        if (isForward)
+        {
+            for (int count = pageSize ; (count > 0) && (index < retrievableEvents.size()) ; count--, index++)
             {
-                events.add(new OutputLogEvent().withTimestamp(timestamp).withMessage(message));
+                events.add(retrievableEvents.get(index));
+            }
+        }
+        else
+        {
+            for (int count = pageSize ; (count > 0) && (index >= 0) ; count--, index--)
+            {
+                events.add(retrievableEvents.get(index));
             }
         }
 
-        String nextToken = request.getNextToken();
-        int startOffset = (! StringUtil.isBlank(nextToken))
-                        ? Integer.parseInt(nextToken)
-                        : 0;
-        int endOffset = Math.min(events.size(), startOffset + pageSize);
+        // CloudWatch always returns events sorted in forward timestamp order
+        Collections.sort(events, new Comparator<OutputLogEvent>()
+        {
+            @Override
+            public int compare(OutputLogEvent o1, OutputLogEvent o2)
+            {
+                return o1.getTimestamp().compareTo(o2.getTimestamp());
+            }
+        });
 
         return new GetLogEventsResult()
-               .withEvents(events.subList(startOffset, endOffset))
-               .withNextForwardToken(String.valueOf(endOffset));
+               .withEvents(events)
+               .withNextForwardToken(String.valueOf(index))
+               .withNextBackwardToken(String.valueOf(index));
     }
 
 
