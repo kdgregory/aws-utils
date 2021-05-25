@@ -15,6 +15,8 @@
 package com.kdgregory.aws.utils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,6 +31,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import net.sf.kdgcommons.collections.CollectionUtil;
+import net.sf.kdgcommons.lang.ThreadUtil;
+
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.AWSLogsClientBuilder;
 import com.amazonaws.services.logs.model.*;
@@ -36,7 +41,7 @@ import com.amazonaws.services.logs.model.*;
 import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsReader;
 import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil;
 import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsWriter;
-import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsReader.StreamIdentifier;
+import com.kdgregory.aws.utils.cloudwatch.LogStreamIterable;
 
 
 /**
@@ -107,7 +112,7 @@ public class CloudWatchLogsIntegrationTest
         assertNotNull("post-create describeLogGroup()",         CloudWatchLogsUtil.describeLogGroup(client, logGroupName));
         assertNotNull("post-create describeLogStream()",        CloudWatchLogsUtil.describeLogStream(client, logGroupName, logStreamName));
 
-        assertTrue("stream deletion succeeded",                  CloudWatchLogsUtil.deleteLogStream(client, logGroupName, logStreamName, 30000));
+        assertTrue("stream deletion succeeded",                 CloudWatchLogsUtil.deleteLogStream(client, logGroupName, logStreamName, 30000));
 
         assertNotNull("post-delete-stream describeLogGroup()",  CloudWatchLogsUtil.describeLogGroup(client, logGroupName));
         assertNull("post-delete-stream describeLogStream()",    CloudWatchLogsUtil.describeLogStream(client, logGroupName, logStreamName));
@@ -118,6 +123,69 @@ public class CloudWatchLogsIntegrationTest
         assertNull("post-delete-group describeLogStream()",     CloudWatchLogsUtil.describeLogStream(client, logGroupName, logStreamName));
 
         logger.info("finished");
+    }
+
+
+    @Test
+    public void testLogStreamIterable() throws Exception
+    {
+        String logGroupName = "CloudWatchLogsIntegrationTest-testLogStreamIterable-" + UUID.randomUUID();
+        String logStreamName =  UUID.randomUUID().toString();
+
+        MDC.put("testName", "testLogStreamIterable");
+        logger.info("starting, log group is {}", logGroupName);
+
+        long firstTimestamp = System.currentTimeMillis() - 10000;
+        CloudWatchLogsWriter writer = new CloudWatchLogsWriter(client, logGroupName, logStreamName);
+        writer.add(firstTimestamp,        "one");
+        writer.add(firstTimestamp + 1000, "two");
+        writer.add(firstTimestamp + 2000, "three");
+        writer.add(firstTimestamp + 3000, "four");
+        writer.flush();
+
+        waitForRecords(logGroupName, logStreamName);
+
+        LogStreamIterable itx1 = new LogStreamIterable(client, logGroupName, logStreamName);
+        List<String> msg1 = new ArrayList<>();
+        for (OutputLogEvent event : itx1)
+        {
+            msg1.add(event.getMessage());
+        }
+        assertEquals("test 1: forward iteration from start of stream",
+                     Arrays.asList("one", "two", "three", "four"),
+                     msg1);
+
+        LogStreamIterable itx2 = new LogStreamIterable(client, logGroupName, logStreamName, false);
+        List<String> msg2 = new ArrayList<>();
+        for (OutputLogEvent event : itx2)
+        {
+            msg2.add(event.getMessage());
+        }
+        assertEquals("test 2: reverse iteration from end of stream",
+                     Arrays.asList("four", "three", "two", "one"),
+                     msg2);
+
+        LogStreamIterable itx3 = new LogStreamIterable(client, logGroupName, logStreamName, true, new Date(firstTimestamp + 2000));
+        List<String> msg3 = new ArrayList<>();
+        for (OutputLogEvent event : itx3)
+        {
+            msg3.add(event.getMessage());
+        }
+        assertEquals("test 3: forward iteration from timestamp",
+                     Arrays.asList("three", "four"),
+                     msg3);
+
+        LogStreamIterable itx4 = new LogStreamIterable(client, logGroupName, logStreamName, false, new Date(firstTimestamp + 2000));
+        List<String> msg4 = new ArrayList<>();
+        for (OutputLogEvent event : itx4)
+        {
+            msg4.add(event.getMessage());
+        }
+        assertEquals("test 4: reverse iteration from timestamp",
+                     Arrays.asList("two", "one"),
+                     msg4);
+
+        CloudWatchLogsUtil.deleteLogGroup(client, logGroupName, 10000);
     }
 
 
@@ -315,5 +383,30 @@ public class CloudWatchLogsIntegrationTest
         assertDistinctMessages(events);
 
         logger.info("finished");
+    }
+
+//----------------------------------------------------------------------------
+//  Helpers
+//----------------------------------------------------------------------------
+
+    /**
+     *  A spin-loop that waits for records to become available in a stream,
+     *  throwing if they're not there within 30 seconds.
+     *
+     *  Re-creates what the classes-under-test do, but as a separate implementation
+     *  so that we know we're not just believing our own bullshit.
+     */
+    private void waitForRecords(String logGroupName, String logStreamName)
+    {
+        long timeout = System.currentTimeMillis() + 30000;
+        while (System.currentTimeMillis() < timeout)
+        {
+            GetLogEventsRequest request = new GetLogEventsRequest(logGroupName, logStreamName);
+            GetLogEventsResult result = client.getLogEvents(request);
+            if (CollectionUtil.isNotEmpty(result.getEvents()))
+                return;
+            ThreadUtil.sleepQuietly(250);
+        }
+        throw new IllegalStateException("records did not appear in stream before timeout");
     }
 }
