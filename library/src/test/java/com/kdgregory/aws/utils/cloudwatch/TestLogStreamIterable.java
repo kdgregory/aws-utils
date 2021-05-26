@@ -31,6 +31,7 @@ import com.amazonaws.services.logs.model.GetLogEventsRequest;
 import com.amazonaws.services.logs.model.GetLogEventsResult;
 import com.amazonaws.services.logs.model.OutputLogEvent;
 
+import com.kdgregory.aws.utils.cloudwatch.LogStreamIterable.IterationDirection;
 import com.kdgregory.aws.utils.testhelpers.Log4JCapturingAppender;
 import com.kdgregory.aws.utils.testhelpers.mocks.MockAWSLogs;
 
@@ -115,7 +116,8 @@ public class TestLogStreamIterable
                            .withMessage(20, "second")
                            .withMessage(30, "third");
 
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", true, new Date(20));
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar")
+                                     .withStartingAt(new Date(20));
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         int index = 0;
@@ -140,7 +142,8 @@ public class TestLogStreamIterable
                            .withMessage(20, "second")
                            .withMessage(30, "third");
 
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", false);
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar")
+                                     .withIterationDirection(IterationDirection.BACKWARD);
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         int index = 0;
@@ -167,7 +170,8 @@ public class TestLogStreamIterable
                            .withMessage(30, "third")
                            .withPageSize(2);
 
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", false);
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar")
+                                     .withIterationDirection(IterationDirection.BACKWARD);
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         int index = 0;
@@ -193,7 +197,9 @@ public class TestLogStreamIterable
                            .withMessage(20, "second")
                            .withMessage(30, "third");
 
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", false, new Date(20));
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar")
+                                     .withIterationDirection(IterationDirection.BACKWARD)
+                                     .withStartingAt(new Date(20));
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         int index = 0;
@@ -253,7 +259,8 @@ public class TestLogStreamIterable
         .withMessage(30, "third");
 
         // use explicit retry parameters so that this doesn't take a long time
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", true, null, 3, 50L);
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar")
+                                     .withRetryConfiguration(3, 50L);
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         long start = System.currentTimeMillis();
@@ -290,7 +297,8 @@ public class TestLogStreamIterable
         };
 
         // use explicit retry parameters so that this doesn't take a long time
-        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar", true, null, 3, 50L);
+        LogStreamIterable iterable = new LogStreamIterable(mock.getInstance(), "foo", "bar")
+                                     .withRetryConfiguration(3, 50L);
         Iterator<OutputLogEvent> itx = iterable.iterator();
 
         long start = System.currentTimeMillis();

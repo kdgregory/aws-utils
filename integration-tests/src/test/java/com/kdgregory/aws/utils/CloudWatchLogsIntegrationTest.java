@@ -42,6 +42,7 @@ import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsReader;
 import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil;
 import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsWriter;
 import com.kdgregory.aws.utils.cloudwatch.LogStreamIterable;
+import com.kdgregory.aws.utils.cloudwatch.LogStreamIterable.IterationDirection;
 
 
 /**
@@ -155,7 +156,8 @@ public class CloudWatchLogsIntegrationTest
                      Arrays.asList("one", "two", "three", "four"),
                      msg1);
 
-        LogStreamIterable itx2 = new LogStreamIterable(client, logGroupName, logStreamName, false);
+        LogStreamIterable itx2 = new LogStreamIterable(client, logGroupName, logStreamName)
+                                 .withIterationDirection(IterationDirection.BACKWARD);
         List<String> msg2 = new ArrayList<>();
         for (OutputLogEvent event : itx2)
         {
@@ -165,7 +167,8 @@ public class CloudWatchLogsIntegrationTest
                      Arrays.asList("four", "three", "two", "one"),
                      msg2);
 
-        LogStreamIterable itx3 = new LogStreamIterable(client, logGroupName, logStreamName, true, new Date(firstTimestamp + 2000));
+        LogStreamIterable itx3 = new LogStreamIterable(client, logGroupName, logStreamName)
+                                 .withStartingAt(new Date(firstTimestamp + 2000));
         List<String> msg3 = new ArrayList<>();
         for (OutputLogEvent event : itx3)
         {
@@ -175,7 +178,9 @@ public class CloudWatchLogsIntegrationTest
                      Arrays.asList("three", "four"),
                      msg3);
 
-        LogStreamIterable itx4 = new LogStreamIterable(client, logGroupName, logStreamName, false, new Date(firstTimestamp + 2000));
+        LogStreamIterable itx4 = new LogStreamIterable(client, logGroupName, logStreamName)
+                                 .withIterationDirection(IterationDirection.BACKWARD)
+                                 .withStartingAt(new Date(firstTimestamp + 2000));
         List<String> msg4 = new ArrayList<>();
         for (OutputLogEvent event : itx4)
         {

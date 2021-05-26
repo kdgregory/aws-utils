@@ -42,7 +42,7 @@ import com.kdgregory.aws.utils.CommonUtils;
  *  even if it previously returned <code>false</code>.
  *  <p>
  *  Multiple iterators may be created by one instance of this class. These iterators
- *  operate independenty.
+ *  operate independently.
  *  <p>
  *  This class is thread-safe. Iterators produced from it are not.
  */
@@ -57,76 +57,15 @@ implements Iterable<OutputLogEvent>
     private AWSLogs client;
     private String groupName;
     private String streamName;
-    private boolean isForward;
     private Date startingAt;
-    private int maxRetries;
-    private long retryDelay;
+    private boolean isForward = true;
+    private int maxRetries = DEFAULT_RETRIES;
+    private long retryDelay = DEFAULT_RETRY_DELAY;
 
 
     /**
-     *  Base constructor.
-     *
-     *  @param  client      The AWS client used to perform retrieves.
-     *  @param  groupName   The name of a log group.
-     *  @param  streamName  The name of a log stream within that group.
-     *  @param  isForward   If <code>true</code>, the iterables move forward in time; if
-     *                      <code>false</code>, the iterables move backwards.
-     *  @param  startingAt  The timestamp to start iterating from. If null, iteration
-     *                      starts at the earliest/latest event depending on iterator
-     *                      direction.
-     *  @param  maxRetries  The maximum number of times that a request will be retried
-     *                      if rejected due to throttling. Once this limit is exceeded,
-     *                      the exception is propagated.
-     *  @param  retryDelay  The base delay, in milliseconds, between retries. Each retry
-     *                      will be double the length of the previous (resetting on success).
-     */
-    public LogStreamIterable(AWSLogs client, String groupName, String streamName, boolean isForward, Date startingAt, int maxRetries, long retryDelay)
-    {
-        this.client = client;
-        this.groupName = groupName;
-        this.streamName = streamName;
-        this.isForward = isForward;
-        this.startingAt = startingAt;
-        this.maxRetries = maxRetries;
-        this.retryDelay = retryDelay;
-    }
-
-
-    /**
-     *  Convenience constructor: forward or backward iteration from a given point,
-     *  with default retry configuration.
-     *
-     *  @param  client      The AWS client used to perform retrieves.
-     *  @param  groupName   The name of a log group.
-     *  @param  streamName  The name of a log stream within that group.
-     *  @param  startingAt  The timestamp to start iterating from.
-     */
-    public LogStreamIterable(AWSLogs client, String groupName, String streamName, boolean isForward, Date startingAt)
-    {
-        this(client, groupName, streamName, isForward, startingAt, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
-    }
-
-
-    /**
-     *  Convenience constructor: forward or backward iteration from beginning/end
-     *  of stream, with default retry configuration.
-     *
-     *  @param  client      The AWS client used to perform retrieves.
-     *  @param  groupName   The name of a log group.
-     *  @param  streamName  The name of a log stream within that group.
-     *  @param  isForward   If <code>true</code>, the iterables move forward in time; if
-     *                      <code>false</code>, the iterables move backwards.
-     *
-     */
-    public LogStreamIterable(AWSLogs client, String groupName, String streamName, boolean isForward)
-    {
-        this(client, groupName, streamName, isForward, null, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
-    }
-
-
-    /**
-     *  Convenience constructor: forward iteration from beginning of stream, with
-     *  default retry configuration.
+     *  Constructs an instance with default behavior: forward iteration starting at the
+     *  head of the stream.
      *
      *  @param  client      The AWS client used to perform retrieves.
      *  @param  groupName   The name of a log group.
@@ -134,9 +73,63 @@ implements Iterable<OutputLogEvent>
      */
     public LogStreamIterable(AWSLogs client, String groupName, String streamName)
     {
-        this(client, groupName, streamName, true, null, DEFAULT_RETRIES, DEFAULT_RETRY_DELAY);
+        this.client = client;
+        this.groupName = groupName;
+        this.streamName = streamName;
     }
 
+//----------------------------------------------------------------------------
+//  Configuration
+//----------------------------------------------------------------------------
+
+    public enum IterationDirection { FORWARD, BACKWARD }
+
+    /**
+     *  Sets the direction of iteration.
+     */
+    public LogStreamIterable withIterationDirection(IterationDirection direction)
+    {
+        switch (direction)
+        {
+            case FORWARD:
+                this.isForward = true;
+                break;
+            case BACKWARD:
+                this.isForward = false;
+                break;
+            default:
+                throw new IllegalArgumentException("invalid direction: " + direction);
+        }
+        return this;
+    }
+
+
+    /**
+     *  Sets the initial timestamp for iteration. Forward iteration will return events
+     *  on or after that timestamp, backward iteration will return events before the
+     *  timestamp (excluding any events at the timestamp).
+     */
+    public LogStreamIterable withStartingAt(Date value)
+    {
+        this.startingAt = value;
+        return this;
+    }
+
+
+    /**
+     *  Sets the retry configuration: the number of times that a request will be retried
+     *  when throttled, and the base delay between retries.
+     */
+    public LogStreamIterable withRetryConfiguration(int numRetries, long baseDelay)
+    {
+        this.maxRetries = numRetries;
+        this.retryDelay = baseDelay;
+        return this;
+    }
+
+//----------------------------------------------------------------------------
+//  Public Methods
+//----------------------------------------------------------------------------
 
     @Override
     public Iterator<OutputLogEvent> iterator()
@@ -254,8 +247,8 @@ implements Iterable<OutputLogEvent>
             throw preserved;
         }
     }
-    
-    
+
+
     /**
      *  Compares two events based on their timestamp. According to the docs, timestamp
      *  is not required, so nulls are replaced with 0.
@@ -264,12 +257,12 @@ implements Iterable<OutputLogEvent>
     implements Comparator<OutputLogEvent>
     {
         private boolean isForward;
-        
+
         public OutputLogEventComparator(boolean isForward)
         {
             this.isForward = isForward;
         }
-        
+
         @Override
         public int compare(OutputLogEvent e1, OutputLogEvent e2)
         {
