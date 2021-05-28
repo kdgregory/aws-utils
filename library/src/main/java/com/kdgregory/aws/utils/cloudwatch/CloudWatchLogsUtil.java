@@ -15,6 +15,7 @@
 package com.kdgregory.aws.utils.cloudwatch;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -443,5 +444,45 @@ public class CloudWatchLogsUtil
 
         logger.warn("timeout expired waiting for CloudWatch log stream creation: " + groupName + "/" + streamName);
         return null;
+    }
+
+
+    /**
+     *  Repeatedly attempts to read all events from one or more streams, returning
+     *  either after the expected number of messages have been read or the specified
+     *  timeout elapses. This is useful for integration tests that write events,
+     *  because it will take several (perhaps 10s of) seconds before those events
+     *  are available for reading.
+     *  <p>
+     *  The returned events are sorted by timestamp. If the timeout elapses
+     */
+    public static List<OutputLogEvent> retrieveAllEvents(AWSLogs client, int expectedCount, long timeout, String logGroupName, String... logStreamNames)
+    {
+        List<OutputLogEvent> result = new ArrayList<>(expectedCount);
+        long runUntil = System.currentTimeMillis() + timeout;
+        while (System.currentTimeMillis() < runUntil)
+        {
+            result.clear();
+            for (String logStreamName : logStreamNames)
+            {
+                for (OutputLogEvent event : new LogStreamIterable(client, logGroupName, logStreamName))
+                {
+                    result.add(event);
+                }
+            }
+            Collections.sort(result, new OutputLogEventComparator());
+            if (result.size() >= expectedCount)
+                break;
+
+            try
+            {
+                Thread.sleep(500);
+            }
+            catch (InterruptedException ex)
+            {
+                break;
+            }
+        }
+        return result;
     }
 }
