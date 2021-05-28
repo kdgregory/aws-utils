@@ -17,7 +17,6 @@ package com.kdgregory.aws.utils.cloudwatch;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
@@ -25,6 +24,8 @@ import org.apache.commons.logging.LogFactory;
 
 import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.*;
+
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil.OutputLogEventComparator;
 
 
 /**
@@ -316,20 +317,5 @@ public class CloudWatchLogsReader
             logger.debug("retrieved " + result.size() +  " events from " + streamIdentifier);
 
         return result;
-    }
-
-
-    /**
-     *  A comparator to sort log events by timestamp, used to combine events from
-     *  multiple streams.
-     */
-    private static class OutputLogEventComparator
-    implements Comparator<OutputLogEvent>
-    {
-        @Override
-        public int compare(OutputLogEvent o1, OutputLogEvent o2)
-        {
-            return o1.getTimestamp().compareTo(o2.getTimestamp());
-        }
     }
 }

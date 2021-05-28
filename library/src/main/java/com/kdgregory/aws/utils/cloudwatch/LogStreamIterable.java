@@ -16,7 +16,6 @@ package com.kdgregory.aws.utils.cloudwatch;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -29,6 +28,7 @@ import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.*;
 
 import com.kdgregory.aws.utils.CommonUtils;
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil.OutputLogEventComparator;
 
 
 /**
@@ -245,32 +245,6 @@ implements Iterable<OutputLogEvent>
                 }
             }
             throw preserved;
-        }
-    }
-
-
-    /**
-     *  Compares two events based on their timestamp. According to the docs, timestamp
-     *  is not required, so nulls are replaced with 0.
-     */
-    private static class OutputLogEventComparator
-    implements Comparator<OutputLogEvent>
-    {
-        private boolean isForward;
-
-        public OutputLogEventComparator(boolean isForward)
-        {
-            this.isForward = isForward;
-        }
-
-        @Override
-        public int compare(OutputLogEvent e1, OutputLogEvent e2)
-        {
-            // per docs, events do not need to have a timestamp
-            Long ts1 = (e1.getTimestamp() != null) ? e1.getTimestamp() : Long.valueOf(0);
-            Long ts2 = (e2.getTimestamp() != null) ? e2.getTimestamp() : Long.valueOf(0);
-            int cmp = ts1.compareTo(ts2);
-            return isForward ? cmp : -cmp;
         }
     }
 }

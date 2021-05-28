@@ -15,6 +15,7 @@
 package com.kdgregory.aws.utils.cloudwatch;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
@@ -35,6 +36,60 @@ public class CloudWatchLogsUtil
      *  This is exposed for testing.
      */
     public final static long RESOURCE_TRANSITION_DESCRIBE_INTERVAL = 50;
+
+
+    /**
+     *  A comparator for <code>InputLogEvents</code>. This is intended for prepping
+     *  a list of events for <code>PutLogEvents</code>, so sorts in increasing order
+     *  and will throw if any event has a null timestamp.
+     */
+    public static class InputLogEventComparator
+    implements Comparator<InputLogEvent>
+    {
+        @Override
+        public int compare(InputLogEvent e1, InputLogEvent e2)
+        {
+            return e1.getTimestamp().compareTo(e2.getTimestamp());
+        }
+    }
+
+
+    /**
+     *  A comparator for OutputLogEvents that sorts them by timestamp and treats null
+     *  timestamps (which are allowed, per GetLogEvents doc) as zero.
+     */
+    public static class OutputLogEventComparator
+    implements Comparator<OutputLogEvent>
+    {
+        private boolean isIncreasing;
+
+        /**
+         *  Default constructor; sorts by increasing timestamp.
+         */
+        public OutputLogEventComparator()
+        {
+            this(true);
+        }
+
+        /**
+         *  Base constructor: allows sorting by increasing (true) or decreasing
+         *  (false) timestamp.
+         */
+        public OutputLogEventComparator(boolean isIncreasing)
+        {
+            this.isIncreasing = isIncreasing;
+        }
+
+        @Override
+        public int compare(OutputLogEvent e1, OutputLogEvent e2)
+        {
+            // per docs, events do not need to have a timestamp
+            Long ts1 = (e1.getTimestamp() != null) ? e1.getTimestamp() : Long.valueOf(0);
+            Long ts2 = (e2.getTimestamp() != null) ? e2.getTimestamp() : Long.valueOf(0);
+            int cmp = ts1.compareTo(ts2);
+            return isIncreasing ? cmp : -cmp;
+        }
+    }
 
 
     /**

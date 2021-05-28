@@ -14,7 +14,9 @@
 
 package com.kdgregory.aws.utils.cloudwatch;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -31,6 +33,8 @@ import com.amazonaws.services.logs.AWSLogs;
 import com.amazonaws.services.logs.model.*;
 
 import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil;
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil.InputLogEventComparator;
+import com.kdgregory.aws.utils.cloudwatch.CloudWatchLogsUtil.OutputLogEventComparator;
 import com.kdgregory.aws.utils.testhelpers.Log4JCapturingAppender;
 import com.kdgregory.aws.utils.testhelpers.mocks.MockAWSLogs;
 
@@ -53,6 +57,69 @@ public class TestCloudWatchLogsUtil
 //----------------------------------------------------------------------------
 //  Testcases
 //----------------------------------------------------------------------------
+
+    @Test
+    public void testInputLogEventComparator() throws Exception
+    {
+        InputLogEvent e1 = new InputLogEvent().withTimestamp(10L).withMessage("foo");
+        InputLogEvent e2 = new InputLogEvent().withTimestamp(20L).withMessage("bar");
+        InputLogEvent e3 = new InputLogEvent().withTimestamp(30L).withMessage("baz");
+        InputLogEvent e4 = new InputLogEvent().withTimestamp(40L).withMessage("biff");
+        InputLogEvent e5 = new InputLogEvent().withMessage("nothing");
+
+        List<InputLogEvent> a1 = new ArrayList<>(Arrays.asList(e3, e2, e4, e1));
+
+        Collections.sort(a1, new InputLogEventComparator());
+        assertEquals("default constructor, no null timestamps",
+                     Arrays.asList(e1, e2, e3, e4),
+                     a1);
+
+        try
+        {
+            List<InputLogEvent> a2 = new ArrayList<>(Arrays.asList(e3, e2, e5, e4, e1));
+            Collections.sort(a2, new InputLogEventComparator());
+        }
+        catch (NullPointerException ex)
+        {
+            // success
+        }
+    }
+
+
+    @Test
+    public void testOutputLogEventComparator() throws Exception
+    {
+        OutputLogEvent e1 = new OutputLogEvent().withTimestamp(10L).withMessage("foo");
+        OutputLogEvent e2 = new OutputLogEvent().withTimestamp(20L).withMessage("bar");
+        OutputLogEvent e3 = new OutputLogEvent().withTimestamp(30L).withMessage("baz");
+        OutputLogEvent e4 = new OutputLogEvent().withTimestamp(40L).withMessage("biff");
+        OutputLogEvent e5 = new OutputLogEvent().withMessage("nothing");
+
+        List<OutputLogEvent> a1 = new ArrayList<>(Arrays.asList(e3, e2, e4, e1));
+
+        Collections.sort(a1, new OutputLogEventComparator());
+        assertEquals("default constructor, no null timestamps",
+                     Arrays.asList(e1, e2, e3, e4),
+                     a1);
+
+        Collections.sort(a1, new OutputLogEventComparator(false));
+        assertEquals("reverse comparator, no null timestamps",
+                     Arrays.asList(e4, e3, e2, e1),
+                     a1);
+
+        List<OutputLogEvent> a2 = new ArrayList<>(Arrays.asList(e3, e2, e5, e4, e1));
+
+        Collections.sort(a2, new OutputLogEventComparator());
+        assertEquals("default constructor, with null timestamp",
+                     Arrays.asList(e5, e1, e2, e3, e4),
+                     a2);
+
+        Collections.sort(a2, new OutputLogEventComparator(false));
+        assertEquals("reverse comparator, with null timestamp",
+                     Arrays.asList(e4, e3, e2, e1, e5),
+                     a2);
+    }
+
 
     @Test
     // note: this is implemented with LogGroupIterable; detailed testing happens there
